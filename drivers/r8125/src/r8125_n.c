@@ -89,6 +89,7 @@
 #include <linux/seq_file.h>
 #endif
 
+#include "r8125_ipa.h"
 
 /* Maximum number of multicast addresses to filter (vs. Rx-all-multicast).
    The RTL chips use a 64 element hash table based on the Ethernet CRC. */
@@ -14012,10 +14013,11 @@ rtl8125_init_module(void)
 #endif
 
 
+        ret = rtl8125_ipa_register(&rtl8125_pci_driver);
         if (ret) {
-                printk(KERN_INFO "%s: r8125 : Failed to register smmu with platform\n",
-                       MODULENAME);
-                return ret;
+            printk(KERN_INFO "%s: r8125 : Failed to register with IOSS\n",
+                      MODULENAME);
+            goto err_ipa_register;
         }
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,0)
@@ -14028,6 +14030,8 @@ rtl8125_init_module(void)
                 goto err_pci_reg;
         return ret;
 err_pci_reg:
+        rtl8125_ipa_unregister(&rtl8125_pci_driver);
+err_ipa_register:
         return ret;
 }
 
@@ -14035,6 +14039,7 @@ static void __exit
 rtl8125_cleanup_module(void)
 {
         pci_unregister_driver(&rtl8125_pci_driver);
+        rtl8125_ipa_unregister(&rtl8125_pci_driver);
 #ifdef ENABLE_R8125_PROCFS
         if (rtl8125_proc) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
