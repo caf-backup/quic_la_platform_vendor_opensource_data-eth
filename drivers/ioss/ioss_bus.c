@@ -156,7 +156,8 @@ struct ioss_device *ioss_bus_alloc_device(struct ioss *ioss, struct device *dev)
 	idev->root = ioss;
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
-
+	mutex_init(&idev->pm_lock);
+	refcount_set(&idev->pm_refcnt, 0);
 	return idev;
 }
 
@@ -178,7 +179,7 @@ void ioss_bus_free_device(struct ioss_device *idev)
 		kzfree(iface->ioss_priv);
 		kzfree(iface);
 	}
-
+	mutex_destroy(&idev->pm_lock);
 	kzfree(idev);
 }
 

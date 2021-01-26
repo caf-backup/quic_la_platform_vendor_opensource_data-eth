@@ -45,8 +45,10 @@ static bool net_device_belongs_to(struct net_device *net_dev,
 
 static void ioss_iface_queue_refresh(struct ioss_interface *iface)
 {
-	if (queue_work(iface->idev->root->wq, &iface->refresh))
+	if (queue_work(iface->idev->root->wq, &iface->refresh)) {
 		dev_hold(iface->net_dev);
+		__pm_stay_awake(iface->refresh_ws);
+	}
 }
 
 static void ioss_net_event_register(struct ioss_interface *iface,
@@ -491,6 +493,13 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		return;
 	}
 
+	rc = ioss_pci_disable_pc(iface->idev);
+	if (rc) {
+		ioss_dev_err(iface->idev, "Failed to disable PCI power collapse");
+		iface->state = IOSS_IF_ST_ERROR;
+		return;
+	}
+
 	iface->state = IOSS_IF_ST_ONLINE;
 }
 
@@ -502,6 +511,13 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 		return;
 
 	ioss_dev_log(iface->idev, "Bringing down %s", iface->net_dev->name);
+
+	rc = ioss_pci_enable_pc(iface->idev);
+	if (rc) {
+		ioss_dev_err(iface->idev, "Failed to enable PCI power collapse");
+		iface->state = IOSS_IF_ST_ERROR;
+		return;
+	}
 
 	rc = ioss_net_disable_channels(iface);
 	if (rc) {
@@ -548,6 +564,8 @@ static void ioss_refresh_work(struct work_struct *work)
 		ioss_iface_set_offline(iface);
 
 	dev_put(iface->net_dev);
+
+	__pm_relax(iface->refresh_ws);
 }
 
 int ioss_net_watch_device(struct ioss_device *idev)
@@ -558,6 +576,12 @@ int ioss_net_watch_device(struct ioss_device *idev)
 	ioss_for_each_iface(iface, idev) {
 		INIT_WORK(&iface->refresh, ioss_refresh_work);
 		iface->net_dev_nb.notifier_call = ioss_net_device_event;
+
+		iface->refresh_ws = wakeup_source_register(&idev->dev, iface->name);
+		if (!iface->refresh_ws) {
+			ioss_dev_err(idev, "Failed to register refresh wake source");
+			goto err_register;
+		}
 
 		rc = register_netdevice_notifier(&iface->net_dev_nb);
 		if (rc) {
@@ -573,9 +597,14 @@ int ioss_net_watch_device(struct ioss_device *idev)
 	return 0;
 
 err_register:
-	list_for_each_entry(iface, &idev->interfaces, node)
+	list_for_each_entry(iface, &idev->interfaces, node) {
 		(void) unregister_netdevice_notifier(&iface->net_dev_nb);
 
+		flush_work(&iface->refresh);
+
+		wakeup_source_unregister(iface->refresh_ws);
+		iface->refresh_ws = NULL;
+	}
 	return rc;
 }
 
@@ -594,8 +623,9 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 				iface->name);
 			continue;
 		}
-
 		flush_work(&iface->refresh);
+		wakeup_source_unregister(iface->refresh_ws);
+		iface->refresh_ws = NULL;
 	}
 
 	return 0;
