@@ -4234,7 +4234,7 @@ static int rtl8125_hw_set_features(struct net_device *dev,
         else
                 rx_config &= ~(AcceptErr | AcceptRunt);
 
-        if (dev->features & NETIF_F_HW_VLAN_RX)
+        if (features & NETIF_F_HW_VLAN_RX)
                 rx_config |= (EnableInnerVlan | EnableOuterVlan);
         else
                 rx_config &= ~(EnableInnerVlan | EnableOuterVlan);
@@ -11737,6 +11737,11 @@ rtl8125_hw_set_rx_packet_filter(struct net_device *dev)
         mc_filter[1] = swab32(tmp);
 
         tmp = tp->rtl8125_rx_config | rx_mode | (RTL_R32(tp, RxConfig) & rtl_chip_info[tp->chipset].RxConfigMask);
+
+        if (dev->features & NETIF_F_HW_VLAN_RX)
+                tmp |= (EnableInnerVlan | EnableOuterVlan);
+        else
+                tmp &= ~(EnableInnerVlan | EnableOuterVlan);
 
         RTL_W32(tp, RxConfig, tmp);
         RTL_W32(tp, MAR0 + 0, mc_filter[0]);
