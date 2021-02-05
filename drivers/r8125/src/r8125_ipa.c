@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -233,6 +233,7 @@ struct rtl8125_device {
 	union rtl8125_ipa_eth_hdr hdr_v4;
 	union rtl8125_ipa_eth_hdr hdr_v6;
 
+	struct wakeup_source *ws;
 	phys_addr_t mmio_phys_addr;
 	size_t mmio_size;
 	u64 exception_packets;
@@ -1027,6 +1028,13 @@ static int rtl8125_ipa_open_device(struct ipa_eth_device *eth_dev)
 		return -ENOMEM;
 	}
 
+	rtl_dev->ws = wakeup_source_register(eth_dev->dev, "rtl8125-ipa");
+	if (!rtl_dev->ws) {
+		rtl_log_err(rtl_dev, "Error in initializing wake up source");
+		kfree(rtl_dev);
+		return -ENOMEM;
+	}
+
 	rtl_dev->eth_client.inst_id = RTL8125_IPA_INST_ID;
 	rtl_dev->eth_client.client_type = IPA_ETH_CLIENT_RTK8125B;
 	rtl_dev->eth_client.traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
@@ -1037,12 +1045,17 @@ static int rtl8125_ipa_open_device(struct ipa_eth_device *eth_dev)
 	rtl_dev->eth_dev = eth_dev;
 	rtl_dev->rtl8125_tp = netdev_priv(eth_dev->net_dev);
 
+	__pm_stay_awake(rtl_dev->ws);
+
 	return 0;
 }
 
 static void rtl8125_ipa_close_device(struct ipa_eth_device *eth_dev)
 {
 	struct rtl8125_device *rtl_dev = eth_dev->od_priv;
+
+	__pm_relax(rtl_dev->ws);
+	wakeup_source_unregister(rtl_dev->ws);
 
 	eth_dev->od_priv = NULL;
 	eth_dev->net_dev = NULL;
