@@ -49,8 +49,59 @@ static bool match_r8125(struct device *real_dev)
 		!strcmp(to_pci_driver(real_dev->driver)->name, "r8125");
 }
 
+/* AQC HAL implementation */
+#define AQC_RX_TAIL_PTR_OFFSET 0x00005B10
+#define AQC_RX_TAIL_PTR(base, idx) \
+	((base) + AQC_RX_TAIL_PTR_OFFSET + ((idx) * 0x20))
+
+#define AQC_RX_HEAD_PTR_OFFSET 0x00005B0C
+#define AQC_RX_HEAD_PTR(base, idx) \
+	((base) + AQC_RX_HEAD_PTR_OFFSET + ((idx) * 0x20))
+
+#define AQC_TX_TAIL_PTR_OFFSET 0x00007C10
+#define AQC_TX_TAIL_PTR(base, idx) \
+	((base) + AQC_TX_TAIL_PTR_OFFSET + ((idx) * 0x40))
+
+#define AQC_TX_HEAD_PTR_OFFSET 0x00007C0C
+#define AQC_TX_HEAD_PTR(base, idx) \
+	((base) + AQC_TX_HEAD_PTR_OFFSET + ((idx) * 0x40))
+
+static int fill_aqc_si(enum ipa_eth_client_type ctype, struct ioss_channel *ch)
+{
+
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	struct ipa_eth_pipe_setup_info *si = &cp->ipa_pi.info;
+	struct ipa_eth_aqc_setup_info *aqc = &si->client_info.aqc;
+	static const int AQC_BAR_MMIO = 0;
+
+	struct pci_dev *pdev = to_pci_dev(ioss_to_real_dev(ch->iface->idev));
+
+	aqc->bar_addr = pci_resource_start(pdev, AQC_BAR_MMIO);
+	aqc->aqc_ch = ch->id;
+
+	ioss_dev_log(ch->iface->idev, "AQC: bar=%pap, q=%u\n",
+		&aqc->bar_addr, aqc->aqc_ch);
+
+	if (ch->direction == IOSS_CH_DIR_TX) {
+		aqc->head_ptr_offs = AQC_TX_HEAD_PTR(0, ch->id);
+		aqc->dest_tail_ptr_offs = AQC_TX_TAIL_PTR(0, ch->id);
+	} else {
+		aqc->head_ptr_offs = AQC_RX_HEAD_PTR(0, ch->id);
+		aqc->dest_tail_ptr_offs = AQC_RX_TAIL_PTR(0, ch->id);
+	}
+
+	return 0;
+}
+
+static bool match_aqc(struct device *real_dev)
+{
+	return (real_dev->bus == &pci_bus_type) &&
+		!strcmp(to_pci_driver(real_dev->driver)->name, "atlantic-fwd");
+}
+
 struct ioss_ipa_map ioss_ipa_map_table[IPA_ETH_CLIENT_MAX] = {
 	[IPA_ETH_CLIENT_RTK8125B] = { match_r8125, fill_r8125_si },
+	[IPA_ETH_CLIENT_AQC107] = { match_aqc, fill_aqc_si },
 };
 
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_interface *iface)
