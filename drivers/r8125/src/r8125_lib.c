@@ -337,6 +337,7 @@ error_out:
 
         return NULL;
 }
+EXPORT_SYMBOL(rtl8125_request_ring);
 
 void rtl8125_release_ring(struct rtl8125_ring *ring)
 {
@@ -346,6 +347,7 @@ void rtl8125_release_ring(struct rtl8125_ring *ring)
         rtl8125_free_ring_mem(ring);
         rtl8125_put_ring(ring);
 }
+EXPORT_SYMBOL(rtl8125_release_ring);
 
 void
 rtl8125_hw_config(struct net_device *dev);
@@ -377,6 +379,7 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_enable_ring);
 
 void rtl8125_disable_ring(struct rtl8125_ring *ring)
 {
@@ -406,6 +409,7 @@ void rtl8125_disable_ring(struct rtl8125_ring *ring)
         rtl8125_hw_config(dev);
         rtl8125_hw_start(dev);
 }
+EXPORT_SYMBOL(rtl8125_disable_ring);
 
 int rtl8125_request_event(struct rtl8125_ring *ring, unsigned long flags,
                           dma_addr_t addr, u64 data)
@@ -452,6 +456,7 @@ int rtl8125_request_event(struct rtl8125_ring *ring, unsigned long flags,
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_request_event);
 
 void rtl8125_release_event(struct rtl8125_ring *ring)
 {
@@ -485,6 +490,7 @@ void rtl8125_release_event(struct rtl8125_ring *ring)
 
         return;
 }
+EXPORT_SYMBOL(rtl8125_release_event);
 
 int rtl8125_enable_event(struct rtl8125_ring *ring)
 {
@@ -503,6 +509,7 @@ int rtl8125_enable_event(struct rtl8125_ring *ring)
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_enable_event);
 
 int rtl8125_disable_event(struct rtl8125_ring *ring)
 {
@@ -518,6 +525,7 @@ int rtl8125_disable_event(struct rtl8125_ring *ring)
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_disable_event);
 
 int rtl8125_set_ring_intr_mod(struct rtl8125_ring *ring, int delay)
 {
@@ -533,6 +541,7 @@ int rtl8125_set_ring_intr_mod(struct rtl8125_ring *ring, int delay)
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_set_ring_intr_mod);
 
 int rtl8125_rss_redirect(struct net_device *ndev,
                          unsigned long flags,
@@ -553,6 +562,7 @@ int rtl8125_rss_redirect(struct net_device *ndev,
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_rss_redirect);
 
 int rtl8125_rss_reset(struct net_device *ndev)
 {
@@ -567,6 +577,8 @@ int rtl8125_rss_reset(struct net_device *ndev)
 
         return 0;
 }
+EXPORT_SYMBOL(rtl8125_rss_reset);
+
 struct net_device *rtl8125_get_netdev(struct device *dev)
 {
         struct pci_dev *pdev = to_pci_dev(dev);
@@ -576,6 +588,7 @@ struct net_device *rtl8125_get_netdev(struct device *dev)
 
         return pci_get_drvdata(pdev);
 }
+EXPORT_SYMBOL(rtl8125_get_netdev);
 
 int rtl8125_receive_skb(struct net_device *net_dev, struct sk_buff *skb, bool napi)
 {
@@ -583,6 +596,7 @@ int rtl8125_receive_skb(struct net_device *net_dev, struct sk_buff *skb, bool na
         skb->protocol = eth_type_trans(skb, net_dev);
         return napi ? netif_receive_skb(skb) : netif_rx(skb);
 }
+EXPORT_SYMBOL(rtl8125_receive_skb);
 
 int rtl8125_register_notifier(struct net_device *net_dev,
         struct notifier_block *nb)
@@ -591,6 +605,7 @@ int rtl8125_register_notifier(struct net_device *net_dev,
 
         return atomic_notifier_chain_register(&tp->lib_nh, nb);
 }
+EXPORT_SYMBOL(rtl8125_register_notifier);
 
 int rtl8125_unregister_notifier(struct net_device *net_dev,
         struct notifier_block *nb)
@@ -599,6 +614,7 @@ int rtl8125_unregister_notifier(struct net_device *net_dev,
 
         return atomic_notifier_chain_unregister(&tp->lib_nh, nb);
 }
+EXPORT_SYMBOL(rtl8125_unregister_notifier);
 
 void rtl8125_lib_reset_prepare(struct rtl8125_private *tp)
 {
