@@ -649,13 +649,16 @@ static void ioss_refresh_work(struct work_struct *work)
 {
 	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct device *dev = &idev->dev;
 
 	if (!net_dev)
 		return;
 
 	ioss_dev_dbg(iface->idev, "Refreshing interface %s", iface->name);
 
-	if (netif_running(net_dev) && netif_carrier_ok(net_dev))
+	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
+	    && !(dev->offline))
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);

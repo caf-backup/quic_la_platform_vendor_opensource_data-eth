@@ -121,7 +121,14 @@ static int __ioss_bus_resume_idev(struct device *dev)
 
 static int __ioss_bus_online_idev(struct device *dev)
 {
-	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_device *idev;
+	struct ioss_interface *iface;
+
+	dev->offline = 0;
+	idev = to_ioss_device(dev);
+
+	ioss_for_each_iface(iface, idev)
+		ioss_iface_queue_refresh(iface, true);
 
 	ioss_dev_log(idev, "Online device");
 
@@ -130,7 +137,14 @@ static int __ioss_bus_online_idev(struct device *dev)
 
 static int __ioss_bus_offline_idev(struct device *dev)
 {
-	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_device *idev;
+	struct ioss_interface *iface;
+
+	dev->offline = 1;
+	idev = to_ioss_device(dev);
+
+	ioss_for_each_iface(iface, idev)
+		ioss_iface_queue_refresh(iface, true);
 
 	ioss_dev_log(idev, "Offline device");
 
