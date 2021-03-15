@@ -2,24 +2,11 @@
 /* Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/module.h>
-#include <linux/pci.h>
-#include <linux/gfp.h>
-#include <linux/slab.h>
-#include <linux/device.h>
-#include <linux/pm_wakeup.h>
-
-#include <linux/msm/ioss.h>
-#include <atl_fwd.h>
+#include "aqc_ioss.h"
 
 #define AQC_FLT_LOC_CATCH_ALL 40
 #define AQC_DRIVER_NAME "atlantic-fwd"
 #define MODULENAME "aqc-ioss"
-
-struct aqc_ioss_device {
-	struct atl_nic *nic;
-	struct notifier_block nb;
-};
 
 static void *aqc_ioss_dma_alloc(struct ioss_device *idev,
 			       size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -496,6 +483,28 @@ static int aqc_ioss_disable_event(struct ioss_channel *ch)
 	return 0;
 }
 
+static int aqc_ioss_save_regs(struct ioss_device *idev,
+		void **regs, size_t *size)
+{
+	size_t num_regs;
+	struct aqc_ioss_device *aqdev = idev->private;
+	struct aqc_ioss_regs *regs_save = &aqdev->regs_save;
+
+	memset(regs_save, 0, sizeof(*regs_save));
+
+	num_regs = aqc_regs_save(aqdev->nic->hw.regs, regs_save);
+	if (!num_regs)
+		return -EFAULT;
+
+	if (regs)
+		*regs = regs_save;
+
+	if (size)
+		*size = sizeof(*regs_save);
+
+	return 0;
+}
+
 static struct ioss_driver_ops aqc_ioss_ops = {
 	.open_device = aqc_ioss_open_device,
 	.close_device = aqc_ioss_close_device,
@@ -511,6 +520,8 @@ static struct ioss_driver_ops aqc_ioss_ops = {
 
 	.enable_event = aqc_ioss_enable_event,
 	.disable_event = aqc_ioss_disable_event,
+
+	.save_regs = aqc_ioss_save_regs,
 };
 
 static bool aqc_driver_match(struct device *dev)
