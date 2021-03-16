@@ -13,3 +13,9 @@ r8125-y := r8125_n.o \
 		r8125_lib.o
 
 r8125-$(CONFIG_R8125_IPA_OFFLOAD) += r8125_ipa.o
+
+# IOSS glue driver
+ccflags-y += -I$(srctree)/techpack/data-eth/drivers/ioss/include
+
+obj-$(CONFIG_R8125_IOSS) += r8125_ioss.o
+
