@@ -81,8 +81,8 @@ enum ioss_filter_types {
 };
 
 extern struct bus_type ioss_bus;
-extern struct device_type ioss_pci_dev;
-extern struct device_type ioss_net_dev;
+extern struct device_type ioss_idev_type;
+extern struct device_type ioss_iface_type;
 
 /* IOSS platform node */
 struct ioss {
@@ -113,14 +113,28 @@ struct ioss_device {
 #define to_ioss_device(device) \
 	container_of(device, struct ioss_device, dev)
 
-#define ioss_to_real_dev(idev) (idev->dev.parent)
+#define ioss_idev_to_real(idev) (idev->dev.parent)
+
+static inline int __match_idev(struct device *dev, void *data)
+{
+	return dev->type == &ioss_idev_type;
+}
+
+static inline struct ioss_device *ioss_real_to_idev(struct device *real_dev)
+{
+	struct device *idev_dev =
+			device_find_child(real_dev, NULL, __match_idev);
+
+	return idev_dev ? to_ioss_device(idev_dev) : NULL;
+}
+
 
 struct ioss_interface {
 	struct list_head node;
 
+	struct device dev;
 	const char *name;
 	struct ioss_device *idev;
-	struct net_device *net_dev;
 	unsigned long state;
 
 	u32 instance_id;
@@ -130,12 +144,37 @@ struct ioss_interface {
 	struct wakeup_source *refresh_ws;
 	struct list_head channels;
 
-	bool present;
-	bool registered;
 	void *ioss_priv;
+
+	struct {
+		u64 rx_packets;
+		u64 rx_bytes;
+	} exception_stats;
+
+	struct net_device_ops netdev_ops;
+	const struct net_device_ops *netdev_ops_real;
 };
 
+#define to_ioss_interface(device) \
+	container_of(device, struct ioss_interface, dev)
+
 #define ioss_iface_dev(iface) (iface->idev)
+#define ioss_iface_to_netdev(iface) \
+		(iface->dev.parent ? to_net_dev(iface->dev.parent) : NULL)
+
+static inline int __match_iface(struct device *dev, void *data)
+{
+	return dev->type == &ioss_iface_type;
+}
+
+static inline struct ioss_interface *ioss_netdev_to_iface(
+			struct net_device *net_dev)
+{
+	struct device *iface_dev =
+			device_find_child(&net_dev->dev, NULL, __match_iface);
+
+	return iface_dev ? to_ioss_interface(iface_dev) : NULL;
+}
 
 #define ioss_for_each_iface(_iface, idev) \
 	list_for_each_entry(_iface, &idev->interfaces, node)
@@ -143,7 +182,7 @@ struct ioss_interface {
 #define ioss_nb_to_iface(nb) \
 	container_of(nb, struct ioss_interface, net_dev_nb)
 
-#define refresh_work_to_ioss_if(work) \
+#define ioss_refresh_work_to_iface(work) \
 	container_of(work, struct ioss_interface, refresh)
 
 struct ioss_mem {
@@ -246,7 +285,7 @@ static inline int ioss_channel_add_mem(
 			struct list_head *list,
 			void *addr, dma_addr_t daddr, size_t size)
 {
-	struct device *real_dev = ioss_to_real_dev(ioss_ch_dev(ch));
+	struct device *real_dev = ioss_idev_to_real(ioss_ch_dev(ch));
 	struct ioss_mem *imem = kzalloc(sizeof(*imem), GFP_KERNEL);
 
 	if (!imem)

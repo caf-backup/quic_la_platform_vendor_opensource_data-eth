@@ -10,6 +10,9 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 	struct ioss_driver *idrv = to_ioss_driver(drv);
 	struct ioss_device *idev = to_ioss_device(dev);
 
+	if (dev->type != &ioss_idev_type)
+		return false;
+
 	ioss_dev_dbg(idev, "Matching against %s", idrv->name);
 
 	/* If a match function is provided by the IOSS driver, use that for
@@ -76,7 +79,7 @@ static int ioss_bus_remove(struct device *dev)
 	return 0;
 }
 
-static int ioss_bus_suspend(struct device *dev, pm_message_t state)
+static int __ioss_bus_suspend_idev(struct device *dev, pm_message_t state)
 {
 	struct ioss_device *idev = to_ioss_device(dev);
 
@@ -85,7 +88,7 @@ static int ioss_bus_suspend(struct device *dev, pm_message_t state)
 	return 0;
 }
 
-static int ioss_bus_resume(struct device *dev)
+static int __ioss_bus_resume_idev(struct device *dev)
 {
 	struct ioss_device *idev = to_ioss_device(dev);
 
@@ -94,7 +97,7 @@ static int ioss_bus_resume(struct device *dev)
 	return 0;
 }
 
-static int ioss_bus_online(struct device *dev)
+static int __ioss_bus_online_idev(struct device *dev)
 {
 	struct ioss_device *idev = to_ioss_device(dev);
 
@@ -103,7 +106,7 @@ static int ioss_bus_online(struct device *dev)
 	return 0;
 }
 
-static int ioss_bus_offline(struct device *dev)
+static int __ioss_bus_offline_idev(struct device *dev)
 {
 	struct ioss_device *idev = to_ioss_device(dev);
 
@@ -112,8 +115,44 @@ static int ioss_bus_offline(struct device *dev)
 	return 0;
 }
 
-struct device_type ioss_pci_dev = {
-	.name = "ioss-pci",
+static int ioss_bus_suspend(struct device *dev, pm_message_t state)
+{
+	if (dev->type == &ioss_idev_type)
+		return __ioss_bus_suspend_idev(dev, state);
+
+	return 0;
+}
+
+static int ioss_bus_resume(struct device *dev)
+{
+	if (dev->type == &ioss_idev_type)
+		return __ioss_bus_resume_idev(dev);
+
+	return 0;
+}
+
+static int ioss_bus_online(struct device *dev)
+{
+	if (dev->type == &ioss_idev_type)
+		return __ioss_bus_online_idev(dev);
+
+	return 0;
+}
+
+static int ioss_bus_offline(struct device *dev)
+{
+	if (dev->type == &ioss_idev_type)
+		return __ioss_bus_offline_idev(dev);
+
+	return 0;
+}
+
+struct device_type ioss_idev_type = {
+	.name = "ioss_device",
+};
+
+struct device_type ioss_iface_type = {
+	.name = "ioss_interface",
 };
 
 struct bus_type ioss_bus = {
@@ -143,7 +182,7 @@ void ioss_bus_unregister_driver(struct ioss_driver *idrv)
 	driver_unregister(&idrv->drv);
 }
 
-struct ioss_device *ioss_bus_alloc_device(struct ioss *ioss, struct device *dev)
+struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 {
 	struct ioss_device *idev;
 
@@ -154,14 +193,18 @@ struct ioss_device *ioss_bus_alloc_device(struct ioss *ioss, struct device *dev)
 	}
 
 	idev->root = ioss;
-	idev->dev.parent = dev;
-	idev->dev.bus = &ioss_bus;
 	mutex_init(&idev->pm_lock);
 	refcount_set(&idev->pm_refcnt, 0);
+	INIT_LIST_HEAD(&idev->interfaces);
+
+	idev->dev.parent = dev;
+	idev->dev.bus = &ioss_bus;
+	idev->dev.type = &ioss_idev_type;
+
 	return idev;
 }
 
-void ioss_bus_free_device(struct ioss_device *idev)
+void ioss_bus_free_idev(struct ioss_device *idev)
 {
 	struct ioss_interface *iface, *tmp_iface;
 
@@ -183,10 +226,8 @@ void ioss_bus_free_device(struct ioss_device *idev)
 	kzfree(idev);
 }
 
-int ioss_bus_register_device(struct ioss_device *idev)
+int ioss_bus_register_idev(struct ioss_device *idev)
 {
-	INIT_LIST_HEAD(&idev->interfaces);
-
 	if (ioss_of_parse(idev)) {
 		ioss_dev_err(idev, "Failed to parse devicetree");
 		return -EINVAL;
@@ -195,23 +236,31 @@ int ioss_bus_register_device(struct ioss_device *idev)
 	return device_register(&idev->dev);
 }
 
-void ioss_bus_unregister_device(struct ioss_device *idev)
+void ioss_bus_unregister_idev(struct ioss_device *idev)
 {
 	device_unregister(&idev->dev);
 }
 
-static int __match_real_dev(struct device *dev, const void *data)
+int ioss_bus_register_iface(struct ioss_interface *iface,
+		struct net_device *net_dev)
 {
-	struct device *ioss_dev = dev;
-	const struct device *real_dev = data;
+	dev_hold(net_dev);
 
-	return ioss_dev->parent == real_dev;
+	iface->dev.parent = &net_dev->dev;
+	iface->dev.bus = &ioss_bus;
+	iface->dev.type = &ioss_iface_type;
+
+	dev_set_name(&iface->dev, "%s-%s",
+			dev_name(&iface->idev->dev), net_dev->name);
+
+	return device_register(&iface->dev);
 }
 
-struct ioss_device *ioss_bus_find_dev(struct device *real_dev)
+void ioss_bus_unregister_iface(struct ioss_interface *iface)
 {
-	struct device *ioss_dev =
-		bus_find_device(&ioss_bus, NULL, real_dev, __match_real_dev);
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 
-	return ioss_dev ? to_ioss_device(ioss_dev) : NULL;
+	device_unregister(&iface->dev);
+	iface->dev.parent = NULL;
+	dev_put(net_dev);
 }

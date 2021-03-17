@@ -45,10 +45,47 @@ static bool net_device_belongs_to(struct net_device *net_dev,
 
 static void ioss_iface_queue_refresh(struct ioss_interface *iface)
 {
-	if (queue_work(iface->idev->root->wq, &iface->refresh)) {
-		dev_hold(iface->net_dev);
+	if (queue_work(iface->idev->root->wq, &iface->refresh))
 		__pm_stay_awake(iface->refresh_ws);
-	}
+}
+
+static void __netdev_get_stats64(struct net_device *net_dev,
+		struct rtnl_link_stats64 *stats)
+{
+	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
+	const struct net_device_ops *real_ops = iface->netdev_ops_real;
+
+	/* Retrieve stats for direct software path. Modeled after kernel API
+	 * dev_get_stats().
+	 */
+	if (real_ops->ndo_get_stats64)
+		real_ops->ndo_get_stats64(net_dev, stats);
+	else if (real_ops->ndo_get_stats)
+		netdev_stats_to_stats64(stats,
+					real_ops->ndo_get_stats(net_dev));
+	else
+		netdev_stats_to_stats64(stats, &net_dev->stats);
+
+	/* Add exception path stats */
+	stats->rx_packets += iface->exception_stats.rx_packets;
+	stats->rx_bytes += iface->exception_stats.rx_bytes;
+}
+
+static void __hijack_netdev_ops(struct ioss_interface *iface)
+{
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+
+	iface->netdev_ops_real = net_dev->netdev_ops;
+	iface->netdev_ops = *iface->netdev_ops_real;
+
+	iface->netdev_ops.ndo_get_stats64 = __netdev_get_stats64;
+
+	net_dev->netdev_ops = &iface->netdev_ops;
+}
+
+static void __restore_netdev_ops(struct ioss_interface *iface)
+{
+	ioss_iface_to_netdev(iface)->netdev_ops = iface->netdev_ops_real;
 }
 
 static void ioss_net_event_register(struct ioss_interface *iface,
@@ -58,8 +95,16 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 
 	ioss_dev_log(iface->idev, "Register event for %s", net_dev->name);
 
-	iface->net_dev = net_dev;
-	iface->present = true;
+	memset(&iface->exception_stats, 0, sizeof(iface->exception_stats));
+
+	if (ioss_bus_register_iface(iface, net_dev)) {
+		ioss_dev_err(iface->idev,
+			"Failed to register interface %s", net_dev->name);
+		iface->state = IOSS_IF_ST_ERROR;
+		return;
+	}
+
+	__hijack_netdev_ops(iface);
 
 	ioss_iface_queue_refresh(iface);
 }
@@ -71,7 +116,8 @@ static void ioss_net_event_unregister(struct ioss_interface *iface,
 
 	ioss_dev_log(iface->idev, "Unregister event for %s", net_dev->name);
 
-	iface->present = false;
+	__restore_netdev_ops(iface);
+	ioss_bus_unregister_iface(iface);
 
 	ioss_iface_queue_refresh(iface);
 }
@@ -304,7 +350,7 @@ static int ioss_net_disable_channels(struct ioss_interface *iface)
 
 static int __dma_map_event(struct ioss_channel *ch)
 {
-	struct device *dev = ioss_to_real_dev(ioss_ch_dev(ch));
+	struct device *dev = ioss_idev_to_real(ioss_ch_dev(ch));
 
 	if (ch->event.daddr)
 		return 0;
@@ -325,7 +371,7 @@ static int __dma_map_event(struct ioss_channel *ch)
 
 static int __dma_unmap_event(struct ioss_channel *ch)
 {
-	struct device *dev = ioss_to_real_dev(ioss_ch_dev(ch));
+	struct device *dev = ioss_idev_to_real(ioss_ch_dev(ch));
 
 	if (!ch->event.daddr)
 		return 0;
@@ -463,7 +509,7 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	if (iface->state != IOSS_IF_ST_OFFLINE)
 		return;
 
-	ioss_dev_log(iface->idev, "Bringing up %s", iface->net_dev->name);
+	ioss_dev_log(iface->idev, "Bringing up %s", iface->name);
 
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
@@ -510,7 +556,7 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	if (iface->state != IOSS_IF_ST_ONLINE)
 		return;
 
-	ioss_dev_log(iface->idev, "Bringing down %s", iface->net_dev->name);
+	ioss_dev_log(iface->idev, "Bringing down %s", iface->name);
 
 	rc = ioss_pci_enable_pc(iface->idev);
 	if (rc) {
@@ -552,18 +598,18 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 
 static void ioss_refresh_work(struct work_struct *work)
 {
-	struct ioss_interface *iface = refresh_work_to_ioss_if(work);
-	bool link_up = netif_carrier_ok(iface->net_dev);
-	bool if_up = netif_running(iface->net_dev);
+	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+
+	if (!net_dev)
+		return;
 
 	ioss_dev_dbg(iface->idev, "Refreshing interface %s", iface->name);
 
-	if (if_up && link_up && iface->present)
+	if (netif_running(net_dev) && netif_carrier_ok(net_dev))
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);
-
-	dev_put(iface->net_dev);
 
 	__pm_relax(iface->refresh_ws);
 }
@@ -583,6 +629,8 @@ int ioss_net_watch_device(struct ioss_device *idev)
 			goto err_register;
 		}
 
+		ioss_dev_log(idev, "Watching interface %s", iface->name);
+
 		rc = register_netdevice_notifier(&iface->net_dev_nb);
 		if (rc) {
 			ioss_dev_err(iface->idev,
@@ -590,8 +638,6 @@ int ioss_net_watch_device(struct ioss_device *idev)
 				iface->name);
 			goto err_register;
 		}
-
-		ioss_dev_log(idev, "Watching interface %s", iface->name);
 	}
 
 	return 0;
@@ -605,6 +651,7 @@ err_register:
 		wakeup_source_unregister(iface->refresh_ws);
 		iface->refresh_ws = NULL;
 	}
+
 	return rc;
 }
 

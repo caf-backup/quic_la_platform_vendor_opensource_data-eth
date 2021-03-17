@@ -12,12 +12,15 @@ static void ioss_ipa_notify_cb(void *priv,
 {
 	struct ioss_channel *ch = priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
-	struct net_device *net_dev = ch->iface->idev->net_dev;
+	struct ioss_interface *iface = ch->iface;
 
 	if (evt != IPA_RECEIVE)
 		return;
 
-	skb->protocol = eth_type_trans(skb, net_dev);
+	iface->exception_stats.rx_packets++;
+	iface->exception_stats.rx_bytes += skb->len;
+
+	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
 
 	netif_rx_ni(skb);
 }
@@ -79,6 +82,8 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 
 static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
 {
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 
@@ -89,7 +94,7 @@ static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
 	struct ipa_eth_hdr_info *hi_v6 = &ii->hdr[1];
 
 	/* IPv4 */
-	memcpy(hdr_v4->l2.h_source, iface->net_dev->dev_addr, ETH_ALEN);
+	memcpy(hdr_v4->l2.h_source, net_dev->dev_addr, ETH_ALEN);
 	hdr_v4->l2.h_proto = htons(ETH_P_IP);
 
 	hi_v4->hdr = (u8 *)hdr_v4;
@@ -97,7 +102,7 @@ static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
 	hi_v4->hdr_type = IPA_HDR_L2_ETHERNET_II;
 
 	/* IPv6 */
-	memcpy(hdr_v6->l2.h_source, iface->net_dev->dev_addr, ETH_ALEN);
+	memcpy(hdr_v6->l2.h_source, net_dev->dev_addr, ETH_ALEN);
 	hdr_v6->l2.h_proto = htons(ETH_P_IPV6);
 
 	hi_v6->hdr = (u8 *)hdr_v6;
@@ -107,6 +112,8 @@ static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
 
 static void ioss_ipa_fill_vlan_hdrs(struct ioss_interface *iface)
 {
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 
@@ -117,7 +124,7 @@ static void ioss_ipa_fill_vlan_hdrs(struct ioss_interface *iface)
 	struct ipa_eth_hdr_info *hi_v6 = &ii->hdr[1];
 
 	/* IPv4 */
-	memcpy(hdr_v4->vlan.h_source, iface->net_dev->dev_addr, ETH_ALEN);
+	memcpy(hdr_v4->vlan.h_source, net_dev->dev_addr, ETH_ALEN);
 	hdr_v4->vlan.h_vlan_proto = htons(ETH_P_8021Q);
 	hdr_v4->vlan.h_vlan_encapsulated_proto = htons(ETH_P_IP);
 
@@ -126,7 +133,7 @@ static void ioss_ipa_fill_vlan_hdrs(struct ioss_interface *iface)
 	hi_v4->hdr_type = IPA_HDR_L2_802_1Q;
 
 	/* IPv6 */
-	memcpy(hdr_v6->vlan.h_source, iface->net_dev->dev_addr, ETH_ALEN);
+	memcpy(hdr_v6->vlan.h_source, net_dev->dev_addr, ETH_ALEN);
 	hdr_v6->vlan.h_vlan_proto = htons(ETH_P_8021Q);
 	hdr_v6->vlan.h_vlan_encapsulated_proto = htons(ETH_P_IPV6);
 
@@ -152,10 +159,11 @@ static int ioss_ipa_fill_hdrs(struct ioss_interface *iface)
 	return 0;
 }
 
-static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
+static u32 __fetch_ethtool_link_speed(struct ioss_interface *iface)
 {
 	int rc;
 	struct ethtool_link_ksettings link_ksettings;
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 
 	rtnl_lock();
 	rc = __ethtool_get_link_ksettings(net_dev, &link_ksettings);
@@ -172,7 +180,7 @@ static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 	struct ipa_eth_perf_profile profile;
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
-	u32 link_speed = __fetch_ethtool_link_speed(iface->net_dev);
+	u32 link_speed = __fetch_ethtool_link_speed(iface);
 
 	ioss_dev_dbg(iface->idev, "Voting IPA bandwidth");
 
@@ -225,6 +233,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 	struct ioss_channel *ch;
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
@@ -261,7 +270,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		return -EINVAL;
 	}
 
-	ii->netdev_name = iface->net_dev->name;
+	ii->netdev_name = net_dev->name;
 
 	if (ioss_ipa_fill_hdrs(iface)) {
 		ioss_dev_err(iface->idev, "Failed to fill partial headers");
@@ -300,12 +309,10 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	}
 
 	/* send ecm msg */
-	if (ioss_ipa_msg_connect(iface->net_dev)) {
+	if (ioss_ipa_msg_connect(net_dev)) {
 		ioss_dev_err(iface->idev, "Failed to send connect message");
 		return -EINVAL;
 	}
-
-	iface->registered = true;
 
 	return 0;
 }
@@ -319,6 +326,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 	union ioss_ipa_eth_hdr *hdr_v4 = &ifp->ipa_hdr_v4;
 	union ioss_ipa_eth_hdr *hdr_v6 = &ifp->ipa_hdr_v6;
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 
 	/* connect pipes */
 	rc = ipa_eth_client_disconn_pipes(ec);
@@ -335,7 +343,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	}
 
 	/* send ecm msg */
-	rc = ioss_ipa_msg_disconnect(iface->net_dev);
+	rc = ioss_ipa_msg_disconnect(net_dev);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to send disconnect message");
 		return rc;
@@ -357,8 +365,6 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	}
 
 	memset(ec, 0, sizeof(*ec));
-
-	iface->registered = false;
 
 	return 0;
 }
