@@ -3,3 +3,5 @@ ccflags-y := -Wno-unused-function
 obj-y := data-eth.o
 
 obj-$(CONFIG_R8125) += drivers/r8125/src/
+obj-$(CONFIG_IOSS) += drivers/ioss/
+obj-$(CONFIG_AQFWD_IOSS)  += drivers/aqc_ioss/
