@@ -153,6 +153,11 @@ struct ioss_interface {
 
 	struct net_device_ops netdev_ops;
 	const struct net_device_ops *netdev_ops_real;
+
+	struct notifier_block pm_nb;
+	struct wakeup_source *active_ws;
+	struct delayed_work check_active;
+	struct rtnl_link_stats64 netdev_stats;
 };
 
 #define to_ioss_interface(device) \
@@ -184,6 +189,9 @@ static inline struct ioss_interface *ioss_netdev_to_iface(
 
 #define ioss_refresh_work_to_iface(work) \
 	container_of(work, struct ioss_interface, refresh)
+
+#define ioss_active_work_to_iface(work) \
+	container_of(work, struct ioss_interface, check_active.work)
 
 struct ioss_mem {
 	void *addr;

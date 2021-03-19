@@ -4,10 +4,12 @@
 
 #include <linux/workqueue.h>
 #include <linux/rtnetlink.h>
+#include <linux/suspend.h>
 #include <linux/bitops.h>
 
 #include "ioss_i.h"
 
+#define IOSS_CHECK_ACTIVE_MS 1250
 #define IOSS_NET_DEVICE_MAX_EVENTS (NETDEV_CHANGE_TX_QUEUE_LEN + 1)
 
 static const char * const
@@ -49,6 +51,25 @@ static void ioss_iface_queue_refresh(struct ioss_interface *iface)
 		__pm_stay_awake(iface->refresh_ws);
 }
 
+static void ioss_net_check_active(struct ioss_interface *iface)
+{
+	struct rtnl_link_stats64 last_stats = iface->netdev_stats;
+	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+
+	if (!net_dev)
+		return;
+
+	dev_get_stats(net_dev, &iface->netdev_stats);
+
+	if (last_stats.rx_packets != iface->netdev_stats.rx_packets)
+		__pm_stay_awake(iface->active_ws);
+	else
+		__pm_relax(iface->active_ws);
+
+	queue_delayed_work(iface->idev->root->wq, &iface->check_active,
+				msecs_to_jiffies(IOSS_CHECK_ACTIVE_MS));
+}
+
 static void __netdev_get_stats64(struct net_device *net_dev,
 		struct rtnl_link_stats64 *stats)
 {
@@ -88,6 +109,22 @@ static void __restore_netdev_ops(struct ioss_interface *iface)
 	ioss_iface_to_netdev(iface)->netdev_ops = iface->netdev_ops_real;
 }
 
+static int __pm_notifier_cb(struct notifier_block *nb,
+	unsigned long pm_event, void *__unused)
+{
+	struct ioss_interface *iface =
+			container_of(nb, struct ioss_interface, pm_nb);
+
+	switch (pm_event) {
+	case PM_SUSPEND_PREPARE:
+	case PM_POST_SUSPEND:
+		ioss_net_check_active(iface);
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
 static void ioss_net_event_register(struct ioss_interface *iface,
 		unsigned long event, void *ptr)
 {
@@ -106,7 +143,11 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 
 	__hijack_netdev_ops(iface);
 
+	iface->pm_nb.notifier_call = __pm_notifier_cb;
+	register_pm_notifier(&iface->pm_nb);
+
 	ioss_iface_queue_refresh(iface);
+	ioss_net_check_active(iface);
 }
 
 static void ioss_net_event_unregister(struct ioss_interface *iface,
@@ -116,7 +157,12 @@ static void ioss_net_event_unregister(struct ioss_interface *iface,
 
 	ioss_dev_log(iface->idev, "Unregister event for %s", net_dev->name);
 
+	cancel_delayed_work_sync(&iface->check_active);
+	__pm_relax(iface->active_ws);
+
+	unregister_pm_notifier(&iface->pm_nb);
 	__restore_netdev_ops(iface);
+
 	ioss_bus_unregister_iface(iface);
 
 	ioss_iface_queue_refresh(iface);
@@ -614,6 +660,11 @@ static void ioss_refresh_work(struct work_struct *work)
 	__pm_relax(iface->refresh_ws);
 }
 
+static void ioss_net_active_work(struct work_struct *work)
+{
+	ioss_net_check_active(ioss_active_work_to_iface(work));
+}
+
 int ioss_net_watch_device(struct ioss_device *idev)
 {
 	int rc = 0;
@@ -629,6 +680,14 @@ int ioss_net_watch_device(struct ioss_device *idev)
 			goto err_register;
 		}
 
+		INIT_DELAYED_WORK(&iface->check_active, ioss_net_active_work);
+
+		iface->active_ws = wakeup_source_register(&idev->dev, iface->name);
+		if (!iface->active_ws) {
+			ioss_dev_err(idev, "Failed to register active wake source");
+			goto err_register;
+		}
+
 		ioss_dev_log(idev, "Watching interface %s", iface->name);
 
 		rc = register_netdevice_notifier(&iface->net_dev_nb);
@@ -638,6 +697,8 @@ int ioss_net_watch_device(struct ioss_device *idev)
 				iface->name);
 			goto err_register;
 		}
+
+		ioss_dev_log(idev, "Watching interface %s", iface->name);
 	}
 
 	return 0;
@@ -647,9 +708,12 @@ err_register:
 		(void) unregister_netdevice_notifier(&iface->net_dev_nb);
 
 		flush_work(&iface->refresh);
-
 		wakeup_source_unregister(iface->refresh_ws);
 		iface->refresh_ws = NULL;
+
+		cancel_delayed_work_sync(&iface->check_active);
+		wakeup_source_unregister(iface->active_ws);
+		iface->active_ws = NULL;
 	}
 
 	return rc;
@@ -670,9 +734,14 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 				iface->name);
 			continue;
 		}
+
 		flush_work(&iface->refresh);
 		wakeup_source_unregister(iface->refresh_ws);
 		iface->refresh_ws = NULL;
+
+		cancel_delayed_work_sync(&iface->check_active);
+		wakeup_source_unregister(iface->active_ws);
+		iface->active_ws = NULL;
 	}
 
 	return 0;
