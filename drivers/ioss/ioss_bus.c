@@ -4,6 +4,9 @@
 
 #include "ioss_i.h"
 
+/* Wake lock duration to allow the device to settle after a resume */
+#define IOSS_RESUME_SETTLE_MS 5000
+
 static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 {
 	struct device *real_dev = dev->parent;
@@ -90,9 +93,28 @@ static int __ioss_bus_suspend_idev(struct device *dev, pm_message_t state)
 
 static int __ioss_bus_resume_idev(struct device *dev)
 {
+	bool need_refresh = false;
+	bool was_suspended = true;
+	struct ioss_interface *iface;
 	struct ioss_device *idev = to_ioss_device(dev);
 
 	ioss_dev_log(idev, "Resuming device");
+
+	if (dev->offline) {
+		dev->offline = 0;
+		need_refresh = true;
+	}
+
+	ioss_for_each_iface(iface, idev) {
+		if (iface->state == IOSS_IF_ST_ONLINE)
+			was_suspended = false;
+
+		if (need_refresh)
+			ioss_iface_queue_refresh(iface, false);
+	}
+
+	if (was_suspended)
+		pm_wakeup_dev_event(dev, IOSS_RESUME_SETTLE_MS, false);
 
 	return 0;
 }

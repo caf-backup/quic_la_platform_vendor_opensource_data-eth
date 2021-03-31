@@ -45,10 +45,13 @@ static bool net_device_belongs_to(struct net_device *net_dev,
 	return net_dev->dev.parent == idev->dev.parent;
 }
 
-static void ioss_iface_queue_refresh(struct ioss_interface *iface)
+void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush)
 {
 	if (queue_work(iface->idev->root->wq, &iface->refresh))
 		__pm_stay_awake(iface->refresh_ws);
+
+	if (flush)
+		flush_work(&iface->refresh);
 }
 
 static void ioss_net_check_active(struct ioss_interface *iface)
@@ -146,7 +149,7 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 	iface->pm_nb.notifier_call = __pm_notifier_cb;
 	register_pm_notifier(&iface->pm_nb);
 
-	ioss_iface_queue_refresh(iface);
+	ioss_iface_queue_refresh(iface, false);
 	ioss_net_check_active(iface);
 }
 
@@ -165,7 +168,7 @@ static void ioss_net_event_unregister(struct ioss_interface *iface,
 
 	ioss_bus_unregister_iface(iface);
 
-	ioss_iface_queue_refresh(iface);
+	ioss_iface_queue_refresh(iface, false);
 }
 
 static void ioss_net_event_generic(struct ioss_interface *iface,
@@ -175,7 +178,7 @@ static void ioss_net_event_generic(struct ioss_interface *iface,
 
 	ioss_dev_log(iface->idev, "Generic event for %s", net_dev->name);
 
-	ioss_iface_queue_refresh(iface);
+	ioss_iface_queue_refresh(iface, false);
 }
 
 typedef void (*ioss_net_event_handler)(struct ioss_interface *iface,

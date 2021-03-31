@@ -82,4 +82,6 @@ int ioss_net_link_device(struct ioss_device *idev);
 int ioss_log_init(void);
 void ioss_log_deinit(void);
 
+void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
+
 #endif /* _IOSS_I_H_ */
