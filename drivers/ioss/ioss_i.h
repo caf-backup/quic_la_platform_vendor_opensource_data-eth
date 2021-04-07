@@ -47,6 +47,9 @@ extern unsigned long ioss_api_ver;
 
 int ioss_pci_start(struct ioss *ioss);
 void ioss_pci_stop(struct ioss *ioss);
+int ioss_pci_enable_pc(struct ioss_device *idev);
+int ioss_pci_disable_pc(struct ioss_device *idev);
+
 
 int ioss_of_parse(struct ioss_device *idev);
 

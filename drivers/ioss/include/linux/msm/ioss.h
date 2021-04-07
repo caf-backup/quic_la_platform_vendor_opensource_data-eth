@@ -14,6 +14,8 @@
 #include <linux/netdevice.h>
 
 #include <linux/pci.h>
+#include <linux/pm_wakeup.h>
+#include <linux/refcount.h>
 
 /**
  * API Version    Changes
@@ -102,7 +104,9 @@ struct ioss_device {
 	struct net_device *net_dev; /* Real net dev */
 
 	struct list_head interfaces;
-
+	struct mutex pm_lock;
+	refcount_t pm_refcnt;
+	const struct dev_pm_ops *pm_ops_real;
 	void *private;
 };
 
@@ -123,7 +127,7 @@ struct ioss_interface {
 
 	struct notifier_block net_dev_nb;
 	struct work_struct refresh;
-
+	struct wakeup_source *refresh_ws;
 	struct list_head channels;
 
 	bool present;
