@@ -154,34 +154,27 @@ void ioss_pci_stop(struct ioss *ioss)
 
 static int ioss_pci_suspend_handler(struct device *dev)
 {
-	int rc;
+	struct pci_dev *pdev = to_pci_dev(dev);
 
-	/* When offload is started, PCI power collapse is already disabled by
-	 * the ioss_iface_set_online() api. Nonetheless, we still need to do
-	 * a dummy PCI config space save so that the PCIe framework will not by
-	 * itself perform a config space save-restore.
+	/* state_saved unset to avoid pci state restore that will reset MSI-X */
+	pdev->state_saved = false;
+
+	/* no_d3hot set to avoid pci restore state during pci_pm_resume_noirq()
+	 * and to avoid pci save state during pci_pm_suspend_noirq()
 	 */
+	pdev->no_d3hot = true;
 
 	ioss_log_dbg(NULL,
-		   "Device suspend performing dummy config space save");
+		   "Device suspend performing nop");
 
-	rc = pci_save_state(to_pci_dev(dev));
-
-	if (rc)
-		ioss_log_err(NULL, "Device suspend failed");
-	else
-		ioss_log_dbg(NULL, "Device suspend complete");
-
-	return rc;
+	return 0;
 }
 
 static int ioss_pci_resume_handler(struct device *dev)
 {
+	struct pci_dev *pdev = to_pci_dev(dev);
 
-	/* During suspend, RC power collapse would not have happened if offload
-	 * was started. Ignore resume callback since the device does not need
-	 * to be re-initialized.
-	 */
+	pdev->no_d3hot = false;
 
 	ioss_log_dbg(NULL,
 		"Device resume performing nop");
