@@ -21,7 +21,7 @@ static int __fill_r8125_si(struct ioss_channel *ch,
 	static const int RTL8125_TAIL_PTR_BASE = 0x2800;
 	static const int RTL8125_TAIL_PTR_NEXT = 4;
 
-	struct pci_dev *pdev = to_pci_dev(ioss_to_real_dev(ch->iface->idev));
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(ch->iface->idev));
 
 	rtk->bar_addr = pci_resource_start(pdev, RTL8125_BAR_MMIO);
 	rtk->bar_size = pci_resource_len(pdev, RTL8125_BAR_MMIO);
@@ -74,7 +74,7 @@ static int fill_aqc_si(enum ipa_eth_client_type ctype, struct ioss_channel *ch)
 	struct ipa_eth_aqc_setup_info *aqc = &si->client_info.aqc;
 	static const int AQC_BAR_MMIO = 0;
 
-	struct pci_dev *pdev = to_pci_dev(ioss_to_real_dev(ch->iface->idev));
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(ch->iface->idev));
 
 	aqc->bar_addr = pci_resource_start(pdev, AQC_BAR_MMIO);
 	aqc->aqc_ch = ch->id;
@@ -107,7 +107,7 @@ struct ioss_ipa_map ioss_ipa_map_table[IPA_ETH_CLIENT_MAX] = {
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_interface *iface)
 {
 	enum ipa_eth_client_type ctype;
-	struct device *real_dev = ioss_to_real_dev(iface->idev);
+	struct device *real_dev = ioss_idev_to_real(iface->idev);
 
 	for (ctype = 0; ctype < IPA_ETH_CLIENT_MAX; ctype++) {
 		if (!ioss_ipa_map_table[ctype].match_dev)

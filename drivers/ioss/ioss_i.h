@@ -47,6 +47,9 @@ extern unsigned long ioss_api_ver;
 
 int ioss_pci_start(struct ioss *ioss);
 void ioss_pci_stop(struct ioss *ioss);
+int ioss_pci_enable_pc(struct ioss_device *idev);
+int ioss_pci_disable_pc(struct ioss_device *idev);
+
 
 int ioss_of_parse(struct ioss_device *idev);
 
@@ -61,12 +64,16 @@ int ioss_ipa_hal_fill_si(struct ioss_channel *ch);
 
 int ioss_bus_register_driver(struct ioss_driver *idrv);
 void ioss_bus_unregister_driver(struct ioss_driver *idrv);
-int ioss_bus_register_device(struct ioss_device *idev);
-void ioss_bus_unregister_device(struct ioss_device *idev);
-struct ioss_device *ioss_bus_find_dev(struct device *real_dev);
-struct ioss_device *ioss_bus_alloc_device(struct ioss *ioss,
+
+struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss,
 			struct device *dev);
-void ioss_bus_free_device(struct ioss_device *idev);
+void ioss_bus_free_idev(struct ioss_device *idev);
+int ioss_bus_register_idev(struct ioss_device *idev);
+void ioss_bus_unregister_idev(struct ioss_device *idev);
+
+int ioss_bus_register_iface(struct ioss_interface *iface,
+		struct net_device *net_dev);
+void ioss_bus_unregister_iface(struct ioss_interface *iface);
 
 int ioss_net_watch_device(struct ioss_device *idev);
 int ioss_net_unwatch_device(struct ioss_device *idev);
@@ -74,5 +81,7 @@ int ioss_net_link_device(struct ioss_device *idev);
 
 int ioss_log_init(void);
 void ioss_log_deinit(void);
+
+void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 
 #endif /* _IOSS_I_H_ */

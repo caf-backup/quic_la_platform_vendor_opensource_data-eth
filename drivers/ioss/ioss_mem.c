@@ -8,14 +8,14 @@ static void *default_mem_alloc(struct ioss_device *idev,
 		size_t size, dma_addr_t *daddr,
 		gfp_t gfp, struct ioss_mem_allocator *alctr)
 {
-	return dma_alloc_coherent(ioss_to_real_dev(idev), size, daddr, gfp);
+	return dma_alloc_coherent(ioss_idev_to_real(idev), size, daddr, gfp);
 }
 
 static void default_mem_free(struct ioss_device *idev,
 		size_t size, void *addr, dma_addr_t daddr,
 		struct ioss_mem_allocator *alctr)
 {
-	dma_free_coherent(ioss_to_real_dev(idev), size, addr, daddr);
+	dma_free_coherent(ioss_idev_to_real(idev), size, addr, daddr);
 }
 
 static phys_addr_t default_mem_pa(struct ioss_device *idev,

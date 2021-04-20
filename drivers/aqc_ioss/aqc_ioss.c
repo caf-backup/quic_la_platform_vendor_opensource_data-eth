@@ -17,7 +17,6 @@
 #define MODULENAME "aqc-ioss"
 
 struct aqc_ioss_device {
-	struct wakeup_source *ws;
 	struct atl_nic *nic;
 	struct notifier_block nb;
 };
@@ -104,28 +103,17 @@ static int aqc_ioss_open_device(struct ioss_device *idev)
 
 	aqdev->nic = netdev_priv(idev->net_dev);
 
-	aqdev->ws = wakeup_source_register(&idev->dev, "aqc-ioss");
-	if (!aqdev->ws) {
-		ioss_dev_err(idev, "Error in initializing wake up source");
-		goto err_ws;
-	}
-
 	aqdev->nb.notifier_call = aqc_notifier_cb;
 	if (atl_fwd_register_notifier(idev->net_dev, &aqdev->nb)) {
 		ioss_dev_err(idev, "Failed to register with ATL notifier");
 		goto err_notif;
 	}
 
-	/* Hold wake lock since IOSS does yet support power management */
-	__pm_stay_awake(aqdev->ws);
-
 	idev->private = aqdev;
 
 	return 0;
 
 err_notif:
-	wakeup_source_unregister(aqdev->ws);
-err_ws:
 	kzfree(aqdev);
 
 	return -EFAULT;
@@ -137,9 +125,7 @@ static int aqc_ioss_close_device(struct ioss_device *idev)
 
 	ioss_dev_dbg(idev, "%s", __func__);
 
-	__pm_relax(aqdev->ws);
 	atl_fwd_unregister_notifier(idev->net_dev, &aqdev->nb);
-	wakeup_source_unregister(aqdev->ws);
 	kzfree(aqdev);
 
 	return 0;
