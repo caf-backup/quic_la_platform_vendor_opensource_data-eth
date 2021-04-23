@@ -34,6 +34,8 @@ static int ioss_bus_probe(struct device *dev)
 
 	ioss_dev_log(idev, "Initializing device for offload");
 
+	device_init_wakeup(dev, true);
+
 	rc = ioss_net_link_device(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to link to net device");
@@ -78,6 +80,8 @@ static int ioss_bus_remove(struct device *dev)
 		ioss_dev_err(idev, "Failed to close device");
 		return rc;
 	}
+
+	device_init_wakeup(dev, false);
 
 	return 0;
 }
