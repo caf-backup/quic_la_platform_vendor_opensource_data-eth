@@ -40,13 +40,13 @@ static int ioss_of_parse_channel(struct ioss_interface *iface,
 		goto err;
 
 	key = "qcom,ring-size";
-	if (of_property_read_u32(np, key, &ch->config.ring_size)) {
+	if (of_property_read_u32(np, key, &ch->default_config.ring_size)) {
 		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = "qcom,buff-size";
-	if (of_property_read_u32(np, key, &ch->config.buff_size)) {
+	if (of_property_read_u32(np, key, &ch->default_config.buff_size)) {
 		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
 		goto err;
 	}
@@ -81,8 +81,8 @@ static int ioss_of_parse_channel(struct ioss_interface *iface,
 	if (!!of_find_property(np, "qcom,rx-filter-ip", NULL))
 		ch->filter_types |= IOSS_RXF_F_IP;
 
-	ch->config.desc_alctr = &ioss_default_alctr;
-	ch->config.buff_alctr = &ioss_default_alctr;
+	ch->default_config.desc_alctr = &ioss_default_alctr;
+	ch->default_config.buff_alctr = &ioss_default_alctr;
 
 	list_add_tail(&ch->node, &iface->channels);
 

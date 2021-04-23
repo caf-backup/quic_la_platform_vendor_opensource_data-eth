@@ -224,6 +224,51 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+static int ioss_net_select_llcc_config(struct ioss_channel *ch)
+{
+	u32 ring_size;
+	size_t mem_need = ch->config.ring_size * ch->config.buff_size;
+	size_t mem_size = ioss_llcc_alctr.get(mem_need);
+
+	ioss_dev_cfg(ch->iface->idev,
+		"Requested %u bytes of LLCC, received %u bytes",
+		mem_need, mem_size);
+
+	if (!mem_size)
+		return -ENOMEM;
+
+	ring_size = mem_size / ch->config.buff_size;
+
+	ioss_dev_cfg(ch->iface->idev,
+		"Calculated ring size of %u with LLCC buffer size of %u bytes",
+		ring_size, ch->config.buff_size);
+
+	ch->config.ring_size = ring_size;
+	ch->config.buff_alctr = &ioss_llcc_alctr;
+
+	return 0;
+}
+
+static void ioss_net_select_channel_config(struct ioss_channel *ch)
+{
+	u32 link_speed = ch->iface->link_speed;
+	u32 max_ddr_bw = ch->iface->idev->root->max_ddr_bandwidth;
+
+	ch->config = ch->default_config;
+
+	if (ch->direction == IOSS_CH_DIR_TX && link_speed > max_ddr_bw)
+		ioss_net_select_llcc_config(ch);
+}
+
+static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
+{
+	if (ch->config.buff_alctr == &ioss_llcc_alctr)
+		ioss_llcc_alctr.put(
+			ch->config.ring_size * ch->config.buff_size);
+
+	ch->config = ch->default_config;
+}
+
 static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 {
 	int rc;
@@ -232,10 +277,13 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 	ioss_dev_dbg(ch->iface->idev,
 			"Allocating channel for %s", ch->iface->name);
 
+	ioss_net_select_channel_config(ch);
+
 	rc = ioss_dev_op(idev, request_channel, ch);
 	if (rc) {
 		ioss_dev_err(ch->iface->idev,
 			"Failed to alloc channel for %s", ch->iface->name);
+		ioss_net_deselect_channel_config(ch);
 		return rc;
 	}
 
@@ -325,6 +373,8 @@ static int __ioss_net_free_channel(struct ioss_channel *ch)
 		ioss_dev_err(idev, "Failed to release channel %d", id);
 		return rc;
 	}
+
+	ioss_net_deselect_channel_config(ch);
 
 	ch->allocated = false;
 
@@ -645,6 +695,21 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	iface->state = IOSS_IF_ST_OFFLINE;
 }
 
+static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
+{
+	int rc;
+	struct ethtool_link_ksettings link_ksettings;
+
+	rtnl_lock();
+	rc = __ethtool_get_link_ksettings(net_dev, &link_ksettings);
+	rtnl_unlock();
+
+	if (!rc)
+		return link_ksettings.base.speed;
+	else
+		return 0;
+}
+
 static void ioss_refresh_work(struct work_struct *work)
 {
 	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
@@ -656,6 +721,8 @@ static void ioss_refresh_work(struct work_struct *work)
 		return;
 
 	ioss_dev_dbg(iface->idev, "Refreshing interface %s", iface->name);
+
+	iface->link_speed = __fetch_ethtool_link_speed(net_dev);
 
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
 	    && !(dev->offline))
@@ -703,8 +770,6 @@ int ioss_net_watch_device(struct ioss_device *idev)
 				iface->name);
 			goto err_register;
 		}
-
-		ioss_dev_log(idev, "Watching interface %s", iface->name);
 	}
 
 	return 0;

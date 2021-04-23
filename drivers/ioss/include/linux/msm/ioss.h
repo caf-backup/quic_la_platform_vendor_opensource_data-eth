@@ -86,6 +86,7 @@ extern struct device_type ioss_iface_type;
 
 /* IOSS platform node */
 struct ioss {
+	u32 max_ddr_bandwidth;
 	struct workqueue_struct *wq;
 	struct platform_device *pdev;
 
@@ -145,6 +146,8 @@ struct ioss_interface {
 	struct list_head channels;
 
 	void *ioss_priv;
+
+	u32 link_speed;
 
 	struct {
 		u64 rx_packets;
@@ -219,6 +222,9 @@ struct ioss_mem_allocator {
 			void *addr, dma_addr_t daddr,
 			struct ioss_mem_allocator *alctr);
 
+	size_t (*get)(size_t size);
+	void (*put)(size_t size);
+
 	/* IOSS internal */
 	struct ioss *iroot;
 	void *ioss_priv;
@@ -264,6 +270,7 @@ struct ioss_channel {
 
 	struct ioss_interface *iface;
 
+	struct ioss_channel_config default_config;
 	struct ioss_channel_config config;
 	enum ioss_channel_dir direction;
 	enum ioss_filter_types filter_types;
@@ -491,7 +498,7 @@ static inline const char *ioss_dev_name(struct ioss_device *idev)
 	do { \
 		struct ioss_device *__idev = (idev); \
 		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_cfg(, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+		ioss_log_cfg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
 	} while (0)
 
 #endif /* _IOSS_H_ */

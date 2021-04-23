@@ -41,6 +41,7 @@ struct ioss_iface_priv {
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
+extern struct ioss_mem_allocator ioss_llcc_alctr;
 
 extern unsigned long ioss_ver;
 extern unsigned long ioss_api_ver;
