@@ -272,16 +272,15 @@ static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
 static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 {
 	int rc;
-	struct ioss_device *idev = ioss_ch_dev(ch);
 
-	ioss_dev_dbg(ch->iface->idev,
+	ioss_dev_dbg(ioss_ch_dev(ch),
 			"Allocating channel for %s", ch->iface->name);
 
 	ioss_net_select_channel_config(ch);
 
-	rc = ioss_dev_op(idev, request_channel, ch);
+	rc = ioss_dev_op(ioss_ch_dev(ch), request_channel, ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev,
+		ioss_dev_err(ioss_ch_dev(ch),
 			"Failed to alloc channel for %s", ch->iface->name);
 		ioss_net_deselect_channel_config(ch);
 		return rc;
@@ -289,30 +288,69 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 
 	ch->allocated = true;
 
-	ioss_dev_log(ch->iface->idev, "Allocated channel %d for interface %s",
+	ioss_dev_log(ioss_ch_dev(ch), "Allocated channel %d for interface %s",
 			ch->id, ch->iface->name);
 
 	return 0;
 }
 
-static int ioss_net_alloc_channels(struct ioss_interface *iface)
+static int __ioss_net_free_channel(struct ioss_channel *ch)
 {
 	int rc;
-	struct ioss_channel *ch;
+	int id = ch->id;
+	struct ioss_device *idev = ioss_ch_dev(ch);
 
-	ioss_dev_dbg(iface->idev, "Allocating channels for %s", iface->name);
+	ioss_dev_dbg(idev,
+		"Releasing channel %d for %s", id, ch->iface->name);
 
-	ioss_for_each_channel(ch, iface) {
-		rc = __ioss_net_alloc_channel(ch);
-		if (rc) {
-			ioss_dev_err(ch->iface->idev,
-					"Failed to setup channel for %s",
-					iface->name);
-			return rc;
-		}
+	rc = ioss_dev_op(idev, release_channel, ch);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to release channel %d", id);
+		return rc;
 	}
 
+	ch->allocated = false;
+
+	ioss_net_deselect_channel_config(ch);
+
+	ioss_dev_log(ch->iface->idev,
+		"Released channel %d on interface %s", id, ch->iface->name);
+
 	return 0;
+}
+
+static int __alloc_channel_action(struct list_head *node)
+{
+	return __ioss_net_alloc_channel(
+			container_of(node, struct ioss_channel, node));
+}
+
+static void __alloc_channel_revert(struct list_head *node)
+{
+	(void) __ioss_net_free_channel(
+			container_of(node, struct ioss_channel, node));
+}
+
+
+static int ioss_net_alloc_channels(struct ioss_interface *iface)
+{
+	ioss_dev_dbg(iface->idev, "Allocating channels for %s", iface->name);
+
+	return ioss_list_iter_action(&iface->channels,
+			__alloc_channel_action, __alloc_channel_revert);
+}
+
+static int ioss_net_free_channels(struct ioss_interface *iface)
+{
+	int rc = 0;
+	struct ioss_channel *ch;
+
+	ioss_dev_dbg(iface->idev, "Releasing all channels for %s", iface->name);
+
+	ioss_for_each_channel(ch, iface)
+		rc |= __ioss_net_free_channel(ch);
+
+	return rc;
 }
 
 static int __ioss_net_enable_channel(struct ioss_channel *ch)
@@ -335,71 +373,6 @@ static int __ioss_net_enable_channel(struct ioss_channel *ch)
 
 	ioss_dev_log(ch->iface->idev,
 		"Enabled channel %d for interface %s", ch->id, ch->iface->name);
-
-	return 0;
-}
-
-static int ioss_net_enable_channels(struct ioss_interface *iface)
-{
-	int rc;
-	struct ioss_channel *ch;
-
-	ioss_dev_dbg(iface->idev, "Enabling channels for %s", iface->name);
-
-	ioss_for_each_channel(ch, iface) {
-		rc = __ioss_net_enable_channel(ch);
-		if (rc) {
-			ioss_dev_err(ch->iface->idev,
-					"Failed to enable channel for %s",
-					iface->name);
-			return rc;
-		}
-	}
-
-	return 0;
-}
-
-static int __ioss_net_free_channel(struct ioss_channel *ch)
-{
-	int rc;
-	int id = ch->id;
-	struct ioss_device *idev = ioss_ch_dev(ch);
-
-	ioss_dev_dbg(idev,
-		"Releasing channel %d for %s", id, ch->iface->name);
-
-	rc = ioss_dev_op(idev, release_channel, ch);
-	if (rc) {
-		ioss_dev_err(idev, "Failed to release channel %d", id);
-		return rc;
-	}
-
-	ioss_net_deselect_channel_config(ch);
-
-	ch->allocated = false;
-
-	ioss_dev_log(ch->iface->idev,
-		"Released channel %d on interface %s", id, ch->iface->name);
-
-	return 0;
-}
-
-static int ioss_net_free_channels(struct ioss_interface *iface)
-{
-	int rc;
-	struct ioss_channel *ch;
-
-	ioss_dev_dbg(iface->idev, "Releasing all channels for %s", iface->name);
-
-	ioss_for_each_channel(ch, iface) {
-		rc = __ioss_net_free_channel(ch);
-		if (rc) {
-			ioss_dev_err(ch->iface->idev,
-					"Failed to release channel for %s",
-					iface->name);
-			return rc;
-		}
-	}
 
 	return 0;
 }
@@ -427,24 +400,37 @@ static int __ioss_net_disable_channel(struct ioss_channel *ch)
 	return 0;
 }
 
+static int __enable_channel_action(struct list_head *node)
+{
+	return __ioss_net_enable_channel(
+			container_of(node, struct ioss_channel, node));
+}
+
+static void __enable_channel_revert(struct list_head *node)
+{
+	(void) __ioss_net_disable_channel(
+			container_of(node, struct ioss_channel, node));
+}
+
+static int ioss_net_enable_channels(struct ioss_interface *iface)
+{
+	ioss_dev_dbg(iface->idev, "Enabling channels for %s", iface->name);
+
+	return ioss_list_iter_action(&iface->channels,
+			__enable_channel_action, __enable_channel_revert);
+}
+
 static int ioss_net_disable_channels(struct ioss_interface *iface)
 {
-	int rc;
+	int rc = 0;
 	struct ioss_channel *ch;
 
 	ioss_dev_dbg(iface->idev, "Disabling all channels for %s", iface->name);
 
-	ioss_for_each_channel(ch, iface) {
-		rc = __ioss_net_disable_channel(ch);
-		if (rc) {
-			ioss_dev_err(ch->iface->idev,
-					"Failed to disable channel for %s",
-					iface->name);
-			return rc;
-		}
-	}
+	ioss_for_each_channel(ch, iface)
+		rc |= __ioss_net_disable_channel(ch);
 
-	return 0;
+	return rc;
 }
 
 static int __dma_map_event(struct ioss_channel *ch)
@@ -530,54 +516,35 @@ err_alloc:
 	return rc;
 }
 
-static int ioss_net_setup_events(struct ioss_interface *iface)
-{
-	int rc;
-	struct ioss_channel *ch;
-
-	ioss_dev_dbg(iface->idev, "Setting up all device events");
-
-	ioss_for_each_channel(ch, iface) {
-		rc = __ioss_net_setup_event(ch);
-		if (rc)
-			return rc;
-	}
-
-	return 0;
-}
-
 static int __ioss_net_teardown_event(struct ioss_channel *ch)
 {
-	int rc;
+	int rc1, rc2, rc3;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	ioss_dev_dbg(ch->iface->idev,
 			"Tearing down event for channel %d", ch->id);
 
-	rc = ioss_dev_op(idev, disable_event, ch);
-	if (rc) {
+	rc1 = ioss_dev_op(idev, disable_event, ch);
+	if (rc1)
 		ioss_dev_err(ch->iface->idev,
 			"Failed to disable event for channel %d", ch->id);
-		return rc;
-	}
+	else
+		ch->event.enabled = false;
 
-	ch->event.enabled = false;
-
-	rc = ioss_dev_op(idev, release_event, ch);
-	if (rc) {
+	rc2 = ioss_dev_op(idev, release_event, ch);
+	if (rc2)
 		ioss_dev_err(ch->iface->idev,
 			"Failed to dealloc event for channel %d", ch->id);
-		return rc;
-	}
+	else
+		ch->event.allocated = false;
 
-	ch->event.allocated = false;
-
-	rc = __dma_unmap_event(ch);
-	if (rc) {
+	rc3 = __dma_unmap_event(ch);
+	if (rc3)
 		ioss_dev_err(ch->iface->idev,
 			"Failed to DMA unmap event for channel %d", ch->id);
-		return rc;
-	}
+
+	if (rc1 || rc2 || rc3)
+		return -EFAULT;
 
 	ioss_dev_log(ch->iface->idev,
 		"Teared down event for channel %d", ch->id);
@@ -585,114 +552,146 @@ static int __ioss_net_teardown_event(struct ioss_channel *ch)
 	return 0;
 }
 
+static int __setup_event_action(struct list_head *node)
+{
+	return __ioss_net_setup_event(
+			container_of(node, struct ioss_channel, node));
+}
+
+static void __setup_event_revert(struct list_head *node)
+{
+	(void) __ioss_net_teardown_event(
+			container_of(node, struct ioss_channel, node));
+}
+
+static int ioss_net_setup_events(struct ioss_interface *iface)
+{
+	ioss_dev_dbg(iface->idev, "Setting up all device events");
+
+	return ioss_list_iter_action(&iface->channels,
+			__setup_event_action, __setup_event_revert);
+}
+
 static int ioss_net_teardown_events(struct ioss_interface *iface)
 {
-	int rc;
+	int rc = 0;
 	struct ioss_channel *ch;
 
 	ioss_dev_dbg(iface->idev, "Tearing down all device events");
 
-	ioss_for_each_channel(ch, iface) {
-		rc = __ioss_net_teardown_event(ch);
-		if (rc)
-			return rc;
-	}
+	ioss_for_each_channel(ch, iface)
+		rc |= __ioss_net_teardown_event(ch);
 
-	return 0;
+	return rc;
 }
 
 static void ioss_iface_set_online(struct ioss_interface *iface)
 {
 	int rc;
 
-	if (iface->state != IOSS_IF_ST_OFFLINE)
+	if (iface->state != IOSS_IF_ST_OFFLINE) {
+		ioss_dev_dbg(iface->idev,
+			"Interface %s state is %s; required is %s",
+			iface->name, if_st_s(iface),
+			ioss_if_state_name(IOSS_IF_ST_OFFLINE));
 		return;
+	}
 
 	ioss_dev_log(iface->idev, "Bringing up %s", iface->name);
 
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to allocate channels");
-		iface->state = IOSS_IF_ST_ERROR;
-		return;
+		goto err_alloc_channels;
 	}
 
 	rc = ioss_ipa_register(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to register with IPA");
-		iface->state = IOSS_IF_ST_ERROR;
-		return;
+		goto err_ipa_register;
 	}
 
 	rc = ioss_net_setup_events(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to setup events");
-		iface->state = IOSS_IF_ST_ERROR;
-		return;
+		goto err_setup_events;
 	}
 
 	rc = ioss_net_enable_channels(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to enable channels");
-		iface->state = IOSS_IF_ST_ERROR;
-		return;
+		goto err_enable_channels;
 	}
 
 	rc = ioss_pci_disable_pc(iface->idev);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to disable PCI power collapse");
-		iface->state = IOSS_IF_ST_ERROR;
-		return;
+		goto err_disable_pc;
 	}
 
 	iface->state = IOSS_IF_ST_ONLINE;
+
+	return;
+
+err_disable_pc:
+	ioss_net_disable_channels(iface);
+err_enable_channels:
+	ioss_net_teardown_events(iface);
+err_setup_events:
+	ioss_ipa_unregister(iface);
+err_ipa_register:
+	ioss_net_free_channels(iface);
+err_alloc_channels:
+	iface->state = IOSS_IF_ST_ERROR;
+
+	return;
 }
 
 static void ioss_iface_set_offline(struct ioss_interface *iface)
 {
 	int rc;
 
-	if (iface->state != IOSS_IF_ST_ONLINE)
+	if (iface->state != IOSS_IF_ST_ONLINE) {
+		ioss_dev_dbg(iface->idev,
+			"Interface %s state is %s; required is %s",
+			iface->name, if_st_s(iface),
+			ioss_if_state_name(IOSS_IF_ST_ONLINE));
 		return;
+	}
 
 	ioss_dev_log(iface->idev, "Bringing down %s", iface->name);
+
+	iface->state = IOSS_IF_ST_OFFLINE;
 
 	rc = ioss_pci_enable_pc(iface->idev);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to enable PCI power collapse");
 		iface->state = IOSS_IF_ST_ERROR;
-		return;
 	}
 
 	rc = ioss_net_disable_channels(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to disable channels");
 		iface->state = IOSS_IF_ST_ERROR;
-		return;
 	}
 
 	rc = ioss_net_teardown_events(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to teardown events");
 		iface->state = IOSS_IF_ST_ERROR;
-		return;
 	}
 
 	rc = ioss_ipa_unregister(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to unregister with IPA");
 		iface->state = IOSS_IF_ST_ERROR;
-		return;
 	}
 
 	rc = ioss_net_free_channels(iface);
 	if (rc) {
 		ioss_dev_err(iface->idev, "Failed to release channels");
 		iface->state = IOSS_IF_ST_ERROR;
-		return;
 	}
-
-	iface->state = IOSS_IF_ST_OFFLINE;
 }
 
 static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
@@ -720,7 +719,7 @@ static void ioss_refresh_work(struct work_struct *work)
 	if (!net_dev)
 		return;
 
-	ioss_dev_dbg(iface->idev, "Refreshing interface %s", iface->name);
+	ioss_dev_dbg(idev, "Refreshing interface %s", iface->name);
 
 	iface->link_speed = __fetch_ethtool_link_speed(net_dev);
 
@@ -729,6 +728,9 @@ static void ioss_refresh_work(struct work_struct *work)
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);
+
+	ioss_dev_log(idev,
+		"Interface %s state is %s", iface->name, if_st_s(iface));
 
 	__pm_relax(iface->refresh_ws);
 }

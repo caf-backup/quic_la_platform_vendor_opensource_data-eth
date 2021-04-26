@@ -51,22 +51,23 @@ enum ioss_device_event {
 enum ioss_channel_dir {
 	IOSS_CH_DIR_RX,
 	IOSS_CH_DIR_TX,
+	IOSS_CH_DIR_MAX,
 };
 
 /**
  * enum ioss_offload_state - Offload state of a device
- * @IOSS_OF_ST_DEINITED: No offload path resources are allocated
- * @IOSS_OF_ST_INITED: Offload path resources are allocated, but not started
- * @IOSS_OF_ST_STARTED: Offload path is started and ready to handle traffic
- * @IOSS_OF_ST_ERROR: One or more offload path components are in error state
- * @IOSS_OF_ST_RECOVERY: Offload path is attempting to recover from error
+ * @IOSS_IF_ST_DEINITED: No offload path resources are allocated
+ * @IOSS_IF_ST_INITED: Offload path resources are allocated, but not started
+ * @IOSS_IF_ST_STARTED: Offload path is started and ready to handle traffic
+ * @IOSS_IF_ST_ERROR: One or more offload path components are in error state
+ * @IOSS_IF_ST_RECOVERY: Offload path is attempting to recover from error
  */
-enum ioss_interface_state_t {
+enum ioss_interface_state {
 	IOSS_IF_ST_OFFLINE,
 	IOSS_IF_ST_ONLINE,
 	IOSS_IF_ST_ERROR,
 	IOSS_IF_ST_RECOVERY,
-	IOSS_OF_ST_MAX,
+	IOSS_IF_ST_MAX,
 };
 
 /* Rx filter types */
@@ -129,14 +130,13 @@ static inline struct ioss_device *ioss_real_to_idev(struct device *real_dev)
 	return idev_dev ? to_ioss_device(idev_dev) : NULL;
 }
 
-
 struct ioss_interface {
 	struct list_head node;
 
 	struct device dev;
 	const char *name;
 	struct ioss_device *idev;
-	unsigned long state;
+	enum ioss_interface_state state;
 
 	u32 instance_id;
 

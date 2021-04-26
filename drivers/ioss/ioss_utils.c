@@ -88,3 +88,64 @@ void ioss_log_deinit(void)
 		ioss_ipclog_buf_prio = NULL;
 	}
 }
+
+/* List operation helpers */
+
+static int __ioss_list_iter_action_recurse(
+	struct list_head *node, struct list_head *head,
+	int (*action)(struct list_head *node),
+	void (*revert)(struct list_head *node))
+{
+	int rc;
+
+	if (node == head)
+		return 0;
+
+	rc = action(node);
+	if (rc)
+		return rc;
+
+	rc = __ioss_list_iter_action_recurse(node->next, head, action, revert);
+	if (rc && revert)
+		revert(node);
+
+	return rc;
+}
+
+int ioss_list_iter_action(struct list_head *head,
+	int (*action)(struct list_head *node),
+	void (*revert)(struct list_head *node))
+{
+	return __ioss_list_iter_action_recurse(
+			head->next, head, action, revert);
+}
+
+/* Enum string conversions */
+
+static const char * const ioss_if_states[IOSS_IF_ST_MAX] = {
+	[IOSS_IF_ST_OFFLINE] = "`offline`",
+	[IOSS_IF_ST_ONLINE] = "`online`",
+	[IOSS_IF_ST_ERROR] = "`error`",
+	[IOSS_IF_ST_RECOVERY] = "`recovery`",
+};
+
+const char *ioss_if_state_name(enum ioss_interface_state state)
+{
+	if (state < IOSS_IF_ST_MAX && ioss_if_states[state])
+		return ioss_if_states[state];
+
+	return "<unknown>";
+}
+
+static const char * const ioss_ch_dirs[IOSS_CH_DIR_MAX] = {
+	[IOSS_CH_DIR_RX] = "`RX`",
+	[IOSS_CH_DIR_TX] = "`TX`",
+};
+
+const char *ioss_ch_dir_name(enum ioss_channel_dir dir)
+{
+	if (dir < IOSS_CH_DIR_MAX && ioss_ch_dirs[dir])
+		return ioss_ch_dirs[dir];
+
+	return "<unknown>";
+}
