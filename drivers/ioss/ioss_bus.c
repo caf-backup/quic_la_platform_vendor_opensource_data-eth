@@ -27,6 +27,38 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 			!strcmp(idrv->name, real_dev->driver->name);
 }
 
+static ssize_t show_suspend_ipa_offload(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	struct net_device *net_dev = to_net_dev(dev);
+	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	return snprintf(user_buf, PAGE_SIZE, "%d\n", idev->dev.offline);
+}
+
+static ssize_t store_suspend_ipa_offload(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	struct net_device *net_dev = to_net_dev(dev);
+	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	bool input;
+
+	if (kstrtobool(user_buf, &input) < 0)
+		return -EINVAL;
+
+	idev->dev.offline = input;
+	ioss_for_each_iface(iface, idev)
+		ioss_iface_queue_refresh(iface, true);
+	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+
+	return size;
+}
+
+static DEVICE_ATTR(suspend_ipa_offload, S_IWUSR | S_IRUGO,
+		show_suspend_ipa_offload, store_suspend_ipa_offload);
+
 static int ioss_bus_probe(struct device *dev)
 {
 	int rc;
@@ -54,8 +86,17 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_watch;
 	}
 
+	rc = sysfs_create_file(&idev->net_dev->dev.kobj,
+				&dev_attr_suspend_ipa_offload.attr);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create suspend_ipa_offload node");
+		goto err_sysfs;
+	}
+
 	return 0;
 
+err_sysfs:
+	ioss_net_unwatch_device(idev);
 err_watch:
 	ioss_dev_op(idev, close_device, idev);
 err_open:
@@ -68,6 +109,9 @@ static int ioss_bus_remove(struct device *dev)
 	struct ioss_device *idev = to_ioss_device(dev);
 
 	ioss_dev_log(idev, "De-initializing device");
+
+	sysfs_remove_file(&idev->net_dev->dev.kobj,
+			&dev_attr_suspend_ipa_offload.attr);
 
 	rc = ioss_net_unwatch_device(idev);
 	if (rc) {
