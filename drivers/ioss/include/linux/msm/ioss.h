@@ -18,12 +18,14 @@
 #include <linux/refcount.h>
 
 /**
- * API Version    Changes
+ *   API
+ * Version    Changes
  * ---------------------------------------------------------------------------
- *           1    - Initial version
+ *   1      - Initial version
+ *   2      - Support for crashdump collection
  */
 
-#define IOSS_API_VER 1
+#define IOSS_API_VER 2
 #define IOSS_SUBSYS "ioss"
 
 /**
@@ -109,6 +111,9 @@ struct ioss_device {
 	struct mutex pm_lock;
 	refcount_t pm_refcnt;
 	const struct dev_pm_ops *pm_ops_real;
+
+	struct notifier_block panic_nb;
+
 	void *private;
 };
 
@@ -379,6 +384,9 @@ struct ioss_driver_ops {
 
 	int (*enable_event)(struct ioss_channel *ch);
 	int (*disable_event)(struct ioss_channel *ch);
+
+	int (*save_regs)(struct ioss_device *idev,
+			void **regs, size_t *size);
 };
 
 #define ioss_dev_op(idev, op, args...) \

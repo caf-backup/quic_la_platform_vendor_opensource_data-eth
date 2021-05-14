@@ -7,6 +7,44 @@
 /* Wake lock duration to allow the device to settle after a resume */
 #define IOSS_RESUME_SETTLE_MS 5000
 
+#define MAX_IOSS_DEVICES 10
+#define MAX_IOSS_DRIVERS 10
+
+struct ioss_device *ioss_devices[MAX_IOSS_DEVICES];
+struct ioss_driver *ioss_drivers[MAX_IOSS_DRIVERS];
+
+static int ioss_panic_notifier(struct notifier_block *nb,
+		unsigned long event, void *ptr)
+{
+	int rc;
+	struct ioss_device *idev =
+			container_of(nb, struct ioss_device, panic_nb);
+
+	ioss_dev_log(idev, "Panic notifier called for device");
+
+	rc = ioss_dev_op(idev, save_regs, idev, NULL, NULL);
+	if (rc)
+		ioss_dev_err(idev, "save_regs() failed with error %d", rc);
+	else
+		ioss_dev_cfg(idev, "Panic notifier completed for device");
+
+	return NOTIFY_DONE;
+}
+
+static int ioss_register_panic_notifier(struct ioss_device *idev)
+{
+	idev->panic_nb.notifier_call = ioss_panic_notifier;
+
+	return atomic_notifier_chain_register(
+			&panic_notifier_list, &idev->panic_nb);
+}
+
+static void ioss_unregister_panic_notifier(struct ioss_device *idev)
+{
+	atomic_notifier_chain_unregister(&panic_notifier_list, &idev->panic_nb);
+	idev->panic_nb.notifier_call = NULL;
+}
+
 static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 {
 	struct device *real_dev = dev->parent;
@@ -74,6 +112,12 @@ static int ioss_bus_probe(struct device *dev)
 		return rc;
 	}
 
+	rc = ioss_register_panic_notifier(idev);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to register panic notifier");
+		goto err_notifier;
+	}
+
 	rc = ioss_dev_op(idev, open_device, idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to open device");
@@ -100,7 +144,9 @@ err_sysfs:
 err_watch:
 	ioss_dev_op(idev, close_device, idev);
 err_open:
-	return -EFAULT;
+	ioss_unregister_panic_notifier(idev);
+err_notifier:
+	return rc;
 }
 
 static int ioss_bus_remove(struct device *dev)
@@ -125,6 +171,7 @@ static int ioss_bus_remove(struct device *dev)
 		return rc;
 	}
 
+	ioss_unregister_panic_notifier(idev);
 	device_init_wakeup(dev, false);
 
 	return 0;
@@ -252,29 +299,83 @@ struct bus_type ioss_bus = {
 
 int ioss_bus_register_driver(struct ioss_driver *idrv)
 {
+	int i, rc;
+	struct ioss_driver **idrv_list_entry = NULL;
+
+	for (i = 0; i < ARRAY_SIZE(ioss_drivers); i++) {
+		if (!ioss_drivers[i]) {
+			idrv_list_entry = &ioss_drivers[i];
+			break;
+		}
+	}
+
+	if (!idrv_list_entry) {
+		ioss_log_cfg(NULL,
+			"No space to add %s to ioss_drivers[]", idrv->name);
+		return -ENOSPC;
+	}
+
+	/* Add to driver list before registering the driver with kernel so that
+	 * this is accessible from crashdumps.
+	 */
+	*idrv_list_entry = idrv;
+
 	idrv->drv.name = idrv->name;
 	idrv->drv.bus = &ioss_bus;
 
 	/* Init drv */
 	/* Register driver */
 
-	return driver_register(&idrv->drv);
+	rc = driver_register(&idrv->drv);
+	if (rc) {
+		ioss_log_err(NULL, "Failed to register driver %s", idrv->name);
+		*idrv_list_entry = NULL;
+		return rc;
+	}
+
+	return 0;
 }
 
 void ioss_bus_unregister_driver(struct ioss_driver *idrv)
 {
+	int i;
+
 	driver_unregister(&idrv->drv);
+
+	for (i = 0; i < ARRAY_SIZE(ioss_drivers); i++) {
+		if (ioss_drivers[i] == idrv) {
+			ioss_drivers[i] = NULL;
+			break;
+		}
+	}
 }
 
 struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 {
+	int i;
 	struct ioss_device *idev;
+	struct ioss_device **idev_list_entry = NULL;
+
+	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
+		if (!ioss_devices[i]) {
+			idev_list_entry = &ioss_devices[i];
+			break;
+		}
+	}
+
+	if (!idev_list_entry) {
+		ioss_log_err(NULL,
+			"No space to add %s to ioss_devices[]", dev_name(dev));
+		return NULL;
+	}
 
 	idev = kzalloc(sizeof(*idev), GFP_KERNEL);
 	if (!idev) {
 		ioss_log_err(NULL, "Failed to alloc ioss device");
 		return NULL;
 	}
+
+	*idev_list_entry = idev;
 
 	idev->root = ioss;
 	mutex_init(&idev->pm_lock);
@@ -290,6 +391,7 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 
 void ioss_bus_free_idev(struct ioss_device *idev)
 {
+	int i;
 	struct ioss_interface *iface, *tmp_iface;
 
 	/* Free interfaces and channels */
@@ -306,7 +408,16 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 		kzfree(iface->ioss_priv);
 		kzfree(iface);
 	}
+
 	mutex_destroy(&idev->pm_lock);
+
+	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
+		if (ioss_devices[i] == idev) {
+			ioss_devices[i] = NULL;
+			break;
+		}
+	}
+
 	kzfree(idev);
 }
 
