@@ -41,6 +41,7 @@ struct ioss_iface_priv {
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
+extern struct ioss_mem_allocator ioss_llcc_alctr;
 
 extern unsigned long ioss_ver;
 extern unsigned long ioss_api_ver;
@@ -81,6 +82,16 @@ int ioss_net_link_device(struct ioss_device *idev);
 
 int ioss_log_init(void);
 void ioss_log_deinit(void);
+
+int ioss_list_iter_action(struct list_head *head,
+	int (*action)(struct list_head *node),
+	void (*revert)(struct list_head *node));
+
+const char *ioss_if_state_name(enum ioss_interface_state state);
+const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
+
+#define if_st_s(iface) ioss_if_state_name(iface->state)
+#define ch_dir_s(ch) ioss_ch_dir_name(ch->dir)
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 

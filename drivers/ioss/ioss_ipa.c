@@ -159,45 +159,26 @@ static int ioss_ipa_fill_hdrs(struct ioss_interface *iface)
 	return 0;
 }
 
-static u32 __fetch_ethtool_link_speed(struct ioss_interface *iface)
-{
-	int rc;
-	struct ethtool_link_ksettings link_ksettings;
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
-
-	rtnl_lock();
-	rc = __ethtool_get_link_ksettings(net_dev, &link_ksettings);
-	rtnl_unlock();
-
-	if (!rc)
-		return link_ksettings.base.speed;
-	else
-		return 0;
-}
-
 static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 {
 	struct ipa_eth_perf_profile profile;
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
-	u32 link_speed = __fetch_ethtool_link_speed(iface);
 
-	ioss_dev_dbg(iface->idev, "Voting IPA bandwidth");
-
-	if (!link_speed) {
-		ioss_dev_err(iface->idev,
-				"Failed to retrieve ethernet link speed");
-		return -EFAULT;
-	}
+	ioss_dev_dbg(iface->idev,
+		"Voting for IPA bandwidth of %u Mbps", iface->link_speed);
 
 	memset(&profile, 0, sizeof(profile));
-	profile.max_supported_bw_mbps = link_speed;
+	profile.max_supported_bw_mbps = iface->link_speed;
 
 	if (ipa_eth_client_set_perf_profile(ec, &profile)) {
 		ioss_dev_err(iface->idev,
 				"Failed to set IPA perf profile");
 		return -EINVAL;
 	}
+
+	ioss_dev_cfg(iface->idev,
+		"Voted for IPA bandwidth of %u Mbps", iface->link_speed);
 
 	return 0;
 }

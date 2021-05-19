@@ -51,22 +51,23 @@ enum ioss_device_event {
 enum ioss_channel_dir {
 	IOSS_CH_DIR_RX,
 	IOSS_CH_DIR_TX,
+	IOSS_CH_DIR_MAX,
 };
 
 /**
  * enum ioss_offload_state - Offload state of a device
- * @IOSS_OF_ST_DEINITED: No offload path resources are allocated
- * @IOSS_OF_ST_INITED: Offload path resources are allocated, but not started
- * @IOSS_OF_ST_STARTED: Offload path is started and ready to handle traffic
- * @IOSS_OF_ST_ERROR: One or more offload path components are in error state
- * @IOSS_OF_ST_RECOVERY: Offload path is attempting to recover from error
+ * @IOSS_IF_ST_DEINITED: No offload path resources are allocated
+ * @IOSS_IF_ST_INITED: Offload path resources are allocated, but not started
+ * @IOSS_IF_ST_STARTED: Offload path is started and ready to handle traffic
+ * @IOSS_IF_ST_ERROR: One or more offload path components are in error state
+ * @IOSS_IF_ST_RECOVERY: Offload path is attempting to recover from error
  */
-enum ioss_interface_state_t {
+enum ioss_interface_state {
 	IOSS_IF_ST_OFFLINE,
 	IOSS_IF_ST_ONLINE,
 	IOSS_IF_ST_ERROR,
 	IOSS_IF_ST_RECOVERY,
-	IOSS_OF_ST_MAX,
+	IOSS_IF_ST_MAX,
 };
 
 /* Rx filter types */
@@ -86,6 +87,7 @@ extern struct device_type ioss_iface_type;
 
 /* IOSS platform node */
 struct ioss {
+	u32 max_ddr_bandwidth;
 	struct workqueue_struct *wq;
 	struct platform_device *pdev;
 
@@ -128,14 +130,13 @@ static inline struct ioss_device *ioss_real_to_idev(struct device *real_dev)
 	return idev_dev ? to_ioss_device(idev_dev) : NULL;
 }
 
-
 struct ioss_interface {
 	struct list_head node;
 
 	struct device dev;
 	const char *name;
 	struct ioss_device *idev;
-	unsigned long state;
+	enum ioss_interface_state state;
 
 	u32 instance_id;
 
@@ -145,6 +146,8 @@ struct ioss_interface {
 	struct list_head channels;
 
 	void *ioss_priv;
+
+	u32 link_speed;
 
 	struct {
 		u64 rx_packets;
@@ -219,6 +222,9 @@ struct ioss_mem_allocator {
 			void *addr, dma_addr_t daddr,
 			struct ioss_mem_allocator *alctr);
 
+	size_t (*get)(size_t size);
+	void (*put)(size_t size);
+
 	/* IOSS internal */
 	struct ioss *iroot;
 	void *ioss_priv;
@@ -264,6 +270,7 @@ struct ioss_channel {
 
 	struct ioss_interface *iface;
 
+	struct ioss_channel_config default_config;
 	struct ioss_channel_config config;
 	enum ioss_channel_dir direction;
 	enum ioss_filter_types filter_types;
@@ -491,7 +498,7 @@ static inline const char *ioss_dev_name(struct ioss_device *idev)
 	do { \
 		struct ioss_device *__idev = (idev); \
 		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_cfg(, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+		ioss_log_cfg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
 	} while (0)
 
 #endif /* _IOSS_H_ */
