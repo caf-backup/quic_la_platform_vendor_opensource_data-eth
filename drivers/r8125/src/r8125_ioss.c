@@ -24,6 +24,7 @@
 #define TC_MODE_SHIFT 10
 
 #define TIMER_MASK 0x00FF
+#define TIMER_UNIT 2048
 
 #define to_tp(idev) (((struct r8125_ioss_device *)((idev)->private))->_tp)
 
@@ -565,7 +566,7 @@ static void get_ch_mod(struct ioss_channel *ch,
 	modc_val = (ch_mod_reg & MODC_VAL_MASK) >> MODC_VAL_SHIFT;
 
 	status->interrupt_modc = modc_val * PKT_UNIT[modc_unit];
-	status->interrupt_modt = ch_mod_reg & TIMER_MASK;
+	status->interrupt_modt = (ch_mod_reg & TIMER_MASK) * TIMER_UNIT;
 }
 
 static void get_ch_enabled(struct ioss_channel *ch,
