@@ -7,11 +7,25 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/pm_wakeup.h>
+#include <net/rtnetlink.h>
 
 #include <linux/msm/ioss.h>
 
-#include "r8125_lib.h"
 #include "r8125.h"
+#include "r8125_lib.h"
+
+#define MODC_UNIT_MASK 0x3000
+#define MODC_UNIT_SHIFT 12
+
+#define MODC_VAL_MASK 0x0F00
+#define MODC_VAL_SHIFT 8
+
+#define TC_MODE_MASK 0x0C00
+#define TC_MODE_SHIFT 10
+
+#define TIMER_MASK 0x00FF
+
+#define to_tp(idev) (((struct r8125_ioss_device *)((idev)->private))->_tp)
 
 enum RTL8125_registers_extra {
 	R8125_TX_NEW_CTRL = 0x203E,
@@ -90,10 +104,10 @@ static int r8125_notifier_cb(struct notifier_block *nb,
 
 	switch (action) {
 	case RTL8125_NOTIFY_RESET_PREPARE:
-		ioss_dev_err(rdev->idev, "RTL8125 reset prepare");
+		ioss_dev_log(rdev->idev, "RTL8125 reset prepare");
 		break;
 	case RTL8125_NOTIFY_RESET_COMPLETE:
-		ioss_dev_err(rdev->idev, "RTL8125 reset complete");
+		ioss_dev_log(rdev->idev, "RTL8125 reset complete");
 		break;
 	}
 
@@ -458,6 +472,159 @@ static int r8125_save_regs(struct ioss_device *idev,
 	return 0;
 }
 
+#if IOSS_API_VER >= 3
+static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data, int scount)
+{
+	int i = 0;
+	const char (*strings)[ETH_GSTRING_LEN] = (typeof(strings))strings_data;
+
+	/* iterate through strings[], find matchging index */
+	for (i = 0; i < scount; i++) {
+		if (strcmp(name, strings[i]) == 0)
+			return data[i];
+	}
+
+	return 0;
+}
+
+static int r8125_ioss_device_statistics(struct ioss_device *idev,
+					struct ioss_device_stats *statistics)
+{
+	u64 *data;
+	u8 *strings;
+	int strings_count = 0;
+	struct ethtool_stats stats;
+	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+
+	if (ops == NULL ||
+		ops->get_sset_count == NULL ||
+		ops->get_ethtool_stats == NULL ||
+		ops->get_strings == NULL)
+			return -EOPNOTSUPP;
+
+	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
+
+	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	strings = kcalloc(strings_count, ETH_GSTRING_LEN, GFP_KERNEL);
+	if (!strings) {
+		kfree(data);
+		return -ENOMEM;
+	}
+
+	memset(&stats, 0, sizeof(stats));
+	stats.n_stats = strings_count;
+
+	rtnl_lock();
+	ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	rtnl_unlock();
+
+	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
+
+	statistics->emac_tx_packets =
+		__get_stats_data("tx_packets", data, strings, strings_count);
+	statistics->emac_rx_packets =
+		__get_stats_data("rx_packets", data, strings, strings_count);
+	statistics->emac_tx_errors =
+		__get_stats_data("tx_errors", data, strings, strings_count);
+	statistics->emac_rx_errors =
+		__get_stats_data("rx_errors", data, strings, strings_count);
+	statistics->emac_rx_drops =
+		__get_stats_data("rx_missed", data, strings, strings_count);
+
+	kfree(data);
+	kfree(strings);
+
+	return 0;
+}
+
+static int r8125_ioss_channel_statistics(struct ioss_channel *ch,
+					 struct ioss_channel_stats *statistics)
+{
+	return 0;
+}
+
+static void get_ch_mod(struct ioss_channel *ch,
+		       struct ioss_channel_status *status)
+{
+	struct rtl8125_private *tp = to_tp(ch->iface->idev);
+
+	u16 ch_mod_reg = 0;
+	u16 modc_unit = 0;
+	u16 modc_val = 0;
+
+	const u16 PKT_UNIT[4] = {1, 2, 4, 16};
+
+	ch_mod_reg = (ch->direction == IOSS_CH_DIR_RX) ?
+		RTL_R16(tp, (INT_MITI_V2_0_RX + (ch->id * 8))) :
+		RTL_R16(tp, (INT_MITI_V2_0_TX + (ch->id * 8)));
+
+	modc_unit = (ch_mod_reg & MODC_UNIT_MASK) >> MODC_UNIT_SHIFT;
+	modc_val = (ch_mod_reg & MODC_VAL_MASK) >> MODC_VAL_SHIFT;
+
+	status->interrupt_modc = modc_val * PKT_UNIT[modc_unit];
+	status->interrupt_modt = ch_mod_reg & TIMER_MASK;
+}
+
+static void get_ch_enabled(struct ioss_channel *ch,
+			   struct ioss_channel_status *status)
+{
+	struct rtl8125_private *tp = to_tp(ch->iface->idev);
+	struct rtl8125_ring *ring = ch->private;
+
+	if (ch->direction == IOSS_CH_DIR_RX)
+		status->enabled = ring->enabled;
+	else {
+		u16 tx_new_ctrl1 = 0;
+		u16 tc_mode = 0;
+
+		tx_new_ctrl1 = RTL_R16(tp, R8125_TX_NEW_CTRL);
+		tc_mode = (tx_new_ctrl1 & TC_MODE_MASK) >> TC_MODE_SHIFT;
+		if (tc_mode == 1 || (tc_mode == 0 && ch->id == 0))
+			status->enabled = true;
+	}
+}
+
+static void get_ch_ring_size(struct ioss_channel *ch,
+			     struct ioss_channel_status *status)
+{
+	struct rtl8125_ring *ring = ch->private;
+	void *desc_mem = ring->desc_addr;
+
+	u32 opts1 = (ch->direction == IOSS_CH_DIR_RX) ?
+		((struct RxDescV3 *)desc_mem)[ring->ring_size-1].RxDescNormalDDWord4.opts1 :
+		((struct TxDesc *)desc_mem)[ring->ring_size-1].opts1;
+
+	/* Verify ring_size by checking if last descriptor is at End-of-Ring */
+	if (opts1 & cpu_to_le32(RingEnd))
+		status->ring_size = ring->ring_size;
+}
+
+static void get_ch_head_tail_ptr(struct ioss_channel *ch,
+				 struct ioss_channel_status *status)
+{
+	if (ch->direction == IOSS_CH_DIR_TX) {
+		struct rtl8125_private *tp = to_tp(ch->iface->idev);
+
+		status->head_ptr = RTL_R16(tp, (SW_TAIL_PTR0_8125 + (ch->id * 4)));
+		status->tail_ptr = RTL_R16(tp, (HW_CLO_PTR0_8125 + (ch->id * 4)));
+	}
+}
+
+static int r8125_ioss_channel_status(struct ioss_channel *ch,
+				     struct ioss_channel_status *status)
+{
+	get_ch_mod(ch, status);
+	get_ch_enabled(ch, status);
+	get_ch_ring_size(ch, status);
+	get_ch_head_tail_ptr(ch, status);
+
+	return 0;
+}
+#endif
+
 static struct ioss_driver_ops r8125_ioss_ops = {
 	.open_device = r8125_ioss_open_device,
 	.close_device = r8125_ioss_close_device,
@@ -475,6 +642,12 @@ static struct ioss_driver_ops r8125_ioss_ops = {
 	.disable_event = r8125_ioss_disable_event,
 
 	.save_regs = r8125_save_regs,
+
+#if IOSS_API_VER >= 3
+	.get_device_statistics = r8125_ioss_device_statistics,
+	.get_channel_statistics = r8125_ioss_channel_statistics,
+	.get_channel_status = r8125_ioss_channel_status,
+#endif
 };
 
 static bool r8125_driver_match(struct device *dev)
