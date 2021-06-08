@@ -37,17 +37,16 @@ static int ioss_pci_add_device(struct pci_dev *pdev, struct ioss *ioss)
 
 	ioss_log_cfg(NULL, "Adding device %s", dev_name(&pdev->dev));
 
-	idev = ioss_bus_alloc_device(ioss, &pdev->dev);
+	idev = ioss_bus_alloc_idev(ioss, &pdev->dev);
 	if (!idev)
 		return -ENOMEM;
 
-	idev->dev.type = &ioss_pci_dev;
-	dev_set_name(&idev->dev, "pci:%s", dev_name(idev->dev.parent));
+	dev_set_name(&idev->dev, "%s", dev_name(idev->dev.parent));
 
-	rc = ioss_bus_register_device(idev);
+	rc = ioss_bus_register_idev(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to register device with ioss bus");
-		ioss_bus_free_device(idev);
+		ioss_bus_free_idev(idev);
 		return rc;
 	}
 
@@ -56,15 +55,15 @@ static int ioss_pci_add_device(struct pci_dev *pdev, struct ioss *ioss)
 
 static int ioss_pci_remove_device(struct pci_dev *pdev, struct ioss *ioss)
 {
-	struct ioss_device *idev = ioss_bus_find_dev(&pdev->dev);
+	struct ioss_device *idev = ioss_real_to_idev(&pdev->dev);
 
 	if (!idev)
 		return -ENODEV;
 
 	ioss_dev_log(idev, "Removing device %s", dev_name(idev->dev.parent));
 
-	ioss_bus_unregister_device(idev);
-	ioss_bus_free_device(idev);
+	ioss_bus_unregister_idev(idev);
+	ioss_bus_free_idev(idev);
 
 	return 0;
 }
@@ -155,34 +154,27 @@ void ioss_pci_stop(struct ioss *ioss)
 
 static int ioss_pci_suspend_handler(struct device *dev)
 {
-	int rc;
+	struct pci_dev *pdev = to_pci_dev(dev);
 
-	/* When offload is started, PCI power collapse is already disabled by
-	 * the ioss_iface_set_online() api. Nonetheless, we still need to do
-	 * a dummy PCI config space save so that the PCIe framework will not by
-	 * itself perform a config space save-restore.
+	/* state_saved unset to avoid pci state restore that will reset MSI-X */
+	pdev->state_saved = false;
+
+	/* no_d3hot set to avoid pci restore state during pci_pm_resume_noirq()
+	 * and to avoid pci save state during pci_pm_suspend_noirq()
 	 */
+	pdev->no_d3hot = true;
 
 	ioss_log_dbg(NULL,
-		   "Device suspend performing dummy config space save");
+		   "Device suspend performing nop");
 
-	rc = pci_save_state(to_pci_dev(dev));
-
-	if (rc)
-		ioss_log_err(NULL, "Device suspend failed");
-	else
-		ioss_log_dbg(NULL, "Device suspend complete");
-
-	return rc;
+	return 0;
 }
 
 static int ioss_pci_resume_handler(struct device *dev)
 {
+	struct pci_dev *pdev = to_pci_dev(dev);
 
-	/* During suspend, RC power collapse would not have happened if offload
-	 * was started. Ignore resume callback since the device does not need
-	 * to be re-initialized.
-	 */
+	pdev->no_d3hot = false;
 
 	ioss_log_dbg(NULL,
 		"Device resume performing nop");
@@ -202,7 +194,7 @@ static const struct dev_pm_ops ioss_pci_pm_ops = {
 int ioss_pci_enable_pc(struct ioss_device *idev)
 {
 	int rc;
-	struct device *dev = ioss_to_real_dev(idev);
+	struct device *dev = ioss_idev_to_real(idev);
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
 	rc = msm_pcie_pm_control(MSM_PCIE_ENABLE_PC,
@@ -228,7 +220,7 @@ int ioss_pci_enable_pc(struct ioss_device *idev)
 int ioss_pci_disable_pc(struct ioss_device *idev)
 {
 	int rc;
-	struct device *dev = ioss_to_real_dev(idev);
+	struct device *dev = ioss_idev_to_real(idev);
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
 	rc = msm_pcie_pm_control(MSM_PCIE_DISABLE_PC,

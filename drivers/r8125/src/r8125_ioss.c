@@ -15,7 +15,6 @@
 
 struct r8125_ioss_device {
 	struct ioss_device *idev;
-	struct wakeup_source *ws;
 	struct rtl8125_private *_tp;
 	struct notifier_block nb;
 };
@@ -51,28 +50,17 @@ static int r8125_ioss_open_device(struct ioss_device *idev)
 	rdev->idev = idev;
 	rdev->_tp = netdev_priv(idev->net_dev);
 
-	rdev->ws = wakeup_source_register(&idev->dev, "r8125-ioss");
-	if (!rdev->ws) {
-		ioss_dev_err(idev, "Error in initializing wake up source");
-		goto err_ws;
-	}
-
 	rdev->nb.notifier_call = r8125_notifier_cb;
 	if (rtl8125_register_notifier(idev->net_dev, &rdev->nb)) {
 		ioss_dev_err(idev, "Failed to register with r8125 notifier");
 		goto err_notif;
 	}
 
-	/* Hold wake lock since IOSS does yet support power management */
-	__pm_stay_awake(rdev->ws);
-
 	idev->private = rdev;
 
 	return 0;
 
 err_notif:
-	wakeup_source_unregister(rdev->ws);
-err_ws:
 	kzfree(rdev);
 
 	return -EFAULT;
@@ -84,9 +72,7 @@ static int r8125_ioss_close_device(struct ioss_device *idev)
 
 	ioss_dev_dbg(idev, "%s", __func__);
 
-	__pm_relax(rdev->ws);
 	rtl8125_unregister_notifier(idev->net_dev, &rdev->nb);
-	wakeup_source_unregister(rdev->ws);
 	kzfree(rdev);
 
 	return 0;

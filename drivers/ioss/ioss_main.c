@@ -16,10 +16,20 @@ unsigned long ioss_api_ver = IOSS_API_VER;
 
 static int ioss_parse_dt(struct ioss *ioss)
 {
+	int rc;
 	struct device_node *node = dev_of_node(&ioss->pdev->dev);
 
 	if (!node)
 		return -EFAULT;
+
+	rc  = of_property_read_u32(node,
+			"qcom,max-ddr-bandwidth", &ioss->max_ddr_bandwidth);
+	if (rc)
+		ioss_log_dbg(NULL, "No DDR bandwidth limit specified in DT");
+
+	if (ioss->max_ddr_bandwidth)
+		ioss_log_dbg(NULL, "DDR bandwidth limit set to %u",
+				ioss->max_ddr_bandwidth);
 
 	return 0;
 }
