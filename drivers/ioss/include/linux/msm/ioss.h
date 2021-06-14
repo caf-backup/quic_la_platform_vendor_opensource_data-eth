@@ -23,9 +23,10 @@
  * ---------------------------------------------------------------------------
  *   1      - Initial version
  *   2      - Support for crashdump collection
+ *   3      - Add debugfs support to get IOSS device and channel stats
  */
 
-#define IOSS_API_VER 2
+#define IOSS_API_VER 3
 #define IOSS_SUBSYS "ioss"
 
 /**
@@ -106,7 +107,7 @@ struct ioss_device {
 	struct ioss *root;
 	struct device dev;
 	struct net_device *net_dev; /* Real net dev */
-
+	struct dentry *debugfs;
 	struct list_head interfaces;
 	struct mutex pm_lock;
 	refcount_t pm_refcnt;
@@ -157,6 +158,7 @@ struct ioss_interface {
 	struct {
 		u64 rx_packets;
 		u64 rx_bytes;
+		u64 rx_drops;
 	} exception_stats;
 
 	struct net_device_ops netdev_ops;
@@ -280,6 +282,8 @@ struct ioss_channel {
 	enum ioss_channel_dir direction;
 	enum ioss_filter_types filter_types;
 
+	struct dentry *debugfs;
+
 	struct ioss_channel_event event;
 
 	int id;
@@ -293,6 +297,49 @@ struct ioss_channel {
 	bool enabled;
 
 	void *ioss_priv;
+};
+
+struct ioss_device_stats {
+	u64 hwp_rx_packets;
+	u64 hwp_tx_packets;
+	u64 hwp_rx_bytes;
+	u64 hwp_tx_bytes;
+	u64 hwp_rx_errors;
+	u64 hwp_tx_errors;
+	u64 hwp_rx_drops;
+	u64 hwp_tx_drops;
+	u64 exp_rx_packets;
+	u64 exp_tx_packets;
+	u64 exp_rx_bytes;
+	u64 exp_tx_bytes;
+	u64 exp_rx_errors;
+	u64 exp_tx_errors;
+	u64 exp_rx_drops;
+	u64 exp_tx_drops;
+	u64 emac_rx_packets;
+	u64 emac_tx_packets;
+	u64 emac_rx_bytes;
+	u64 emac_tx_bytes;
+	u64 emac_rx_errors;
+	u64 emac_tx_errors;
+	u64 emac_rx_drops;
+	u64 emac_tx_drops;
+	u64 emac_rx_pause_frames;
+	u64 emac_tx_pause_frames;
+};
+
+struct ioss_channel_stats {
+	u64 overflow_error;
+	u64 underflow_error;
+};
+
+struct ioss_channel_status {
+	bool enabled;
+	u64 ring_size;
+	u64 interrupt_modc;
+	u64 interrupt_modt;
+	u64 head_ptr;
+	u64 tail_ptr;
 };
 
 #define ioss_ch_dev(ch) (ch->iface->idev)
@@ -387,6 +434,13 @@ struct ioss_driver_ops {
 
 	int (*save_regs)(struct ioss_device *idev,
 			void **regs, size_t *size);
+
+	int (*get_device_statistics)(struct ioss_device *idev,
+				     struct ioss_device_stats *stats);
+	int (*get_channel_statistics)(struct ioss_channel *ch,
+				      struct ioss_channel_stats *stats);
+	int (*get_channel_status)(struct ioss_channel *ch,
+				  struct ioss_channel_status *status);
 };
 
 #define ioss_dev_op(idev, op, args...) \

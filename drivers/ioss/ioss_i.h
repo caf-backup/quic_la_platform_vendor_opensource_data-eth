@@ -95,4 +95,11 @@ const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 
+int ioss_debugfs_init(void);
+void ioss_debugfs_exit(void);
+int ioss_debugfs_add_idev(struct ioss_device *idev);
+void ioss_debugfs_remove_idev(struct ioss_device *idev);
+int ioss_debugfs_add_channel(struct ioss_channel *ch);
+void ioss_debugfs_remove_channel(struct ioss_channel *ch);
+
 #endif /* _IOSS_I_H_ */
