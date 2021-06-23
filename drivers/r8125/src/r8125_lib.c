@@ -1,11 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
 ################################################################################
 #
-# r8168 is the Linux device driver released for Realtek 2.5Gigabit Ethernet
+# r8168 is the Linux device driver released for Realtek Gigabit Ethernet
 # controllers with PCI-Express interface.
 #
-# Copyright(c) 2020 Realtek Semiconductor Corp. All rights reserved.
+# Copyright(c) 2021 Realtek Semiconductor Corp. All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
@@ -97,11 +96,11 @@ rtl8125_lib_rx_fill(struct rtl8125_ring *ring)
         for (i = 0; i < ring->ring_size; i++) {
                 desc = rtl8125_get_rxdesc(tp, ring->desc_addr, i);
                 rtl8125_map_to_asic(tp, ring, desc,
-                        ring->bufs[i].dma_addr, ring->buff_size, i);
+                                    ring->bufs[i].dma_addr, ring->buff_size, i);
         }
 
         rtl8125_mark_as_last_descriptor(tp,
-                rtl8125_get_rxdesc(tp, ring->desc_addr, ring->ring_size - 1));
+                                        rtl8125_get_rxdesc(tp, ring->desc_addr, ring->ring_size - 1));
 }
 
 struct rtl8125_ring *rtl8125_get_tx_ring(struct rtl8125_private *tp)
@@ -168,7 +167,7 @@ static void rtl8125_init_tx_ring(struct rtl8125_ring *ring)
         RTL_W32(tp, TNPDS_Q1_LOW_8125 + 4, ((u64)ring->desc_daddr >> 32));
 }
 
-void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
+static void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
 {
         unsigned i;
         struct rtl8125_private *tp = ring->private;
@@ -176,7 +175,7 @@ void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
 
         if (ring->desc_addr) {
                 dma_free_coherent(&pdev->dev, ring->desc_size,
-                                ring->desc_addr, ring->desc_daddr);
+                                  ring->desc_addr, ring->desc_daddr);
 
                 ring->desc_addr = NULL;
         }
@@ -184,19 +183,19 @@ void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
         if (ring->flags & RTL8125_CONTIG_BUFS) {
                 struct rtl8125_buf *rtl_buf = &ring->bufs[0];
                 dma_free_coherent(
-                                &pdev->dev,
-                                ring->ring_size * ring->buff_size,
-                                rtl_buf->addr,
-                                rtl_buf->dma_addr);
+                        &pdev->dev,
+                        ring->ring_size * ring->buff_size,
+                        rtl_buf->addr,
+                        rtl_buf->dma_addr);
         } else {
                 for (i=0; i<ring->ring_size ; i++) {
                         struct rtl8125_buf *rtl_buf = &ring->bufs[i];
                         if (rtl_buf->addr) {
                                 dma_free_coherent(
-                                                &pdev->dev,
-                                                rtl_buf->size,
-                                                rtl_buf->addr,
-                                                rtl_buf->dma_addr);
+                                        &pdev->dev,
+                                        rtl_buf->size,
+                                        rtl_buf->addr,
+                                        rtl_buf->dma_addr);
 
                                 rtl_buf->addr = NULL;
                         }
@@ -209,7 +208,7 @@ void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
         }
 }
 
-int rtl8125_alloc_ring_mem(struct rtl8125_ring *ring)
+static int rtl8125_alloc_ring_mem(struct rtl8125_ring *ring)
 {
         int i;
         struct rtl8125_private *tp = ring->private;
@@ -227,10 +226,10 @@ int rtl8125_alloc_ring_mem(struct rtl8125_ring *ring)
                         ring->desc_size = ring->ring_size * tp->RxDescLength;
 
                 ring->desc_addr = dma_alloc_coherent(
-                                                &pdev->dev,
-                                                ring->desc_size,
-                                                &ring->desc_daddr,
-                                                GFP_KERNEL);
+                                          &pdev->dev,
+                                          ring->desc_size,
+                                          &ring->desc_daddr,
+                                          GFP_KERNEL);
                 if (!ring->desc_addr)
                         goto error_out;
 
@@ -339,18 +338,50 @@ error_out:
 }
 EXPORT_SYMBOL(rtl8125_request_ring);
 
+static int rtl8125_all_ring_released(struct rtl8125_private *tp)
+{
+        int i;
+        int released = 0;
+
+        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
+                struct rtl8125_ring *ring = &tp->lib_tx_ring[i];
+                if (ring->allocated)
+                        goto exit;
+        }
+
+        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
+                struct rtl8125_ring *ring = &tp->lib_rx_ring[i];
+                if (ring->allocated)
+                        goto exit;
+        }
+
+        released = 1;
+
+exit:
+        return released;
+}
+
 void rtl8125_release_ring(struct rtl8125_ring *ring)
 {
+        struct rtl8125_private *tp;
+
         if (!ring)
                 return;
 
+        tp = ring->private;
+
         rtl8125_free_ring_mem(ring);
         rtl8125_put_ring(ring);
+        if (rtl8125_all_ring_released(tp)) {
+                struct net_device *dev = tp->dev;
+                if (netif_running(dev)) {
+                        rtl8125_close(dev);
+                        rtl8125_open(dev);
+                } else
+                        rtl8125_enable_hw_linkchg_interrupt(tp);
+        }
 }
 EXPORT_SYMBOL(rtl8125_release_ring);
-
-void
-rtl8125_hw_config(struct net_device *dev);
 
 int rtl8125_enable_ring(struct rtl8125_ring *ring)
 {
@@ -400,14 +431,14 @@ void rtl8125_disable_ring(struct rtl8125_ring *ring)
         dev = tp->dev;
 
         rtl8125_hw_reset(dev);
-        rtl8125_tx_clear(tp);
-        rtl8125_rx_clear(tp);
-        rtl8125_init_ring(dev);
+        //rtl8125_tx_clear(tp);
+        //rtl8125_rx_clear(tp);
+        //rtl8125_init_ring(dev);
 
         ring->enabled = false;
 
-        rtl8125_hw_config(dev);
-        rtl8125_hw_start(dev);
+        //rtl8125_hw_config(dev);
+        //rtl8125_hw_start(dev);
 }
 EXPORT_SYMBOL(rtl8125_disable_ring);
 
@@ -599,7 +630,7 @@ int rtl8125_receive_skb(struct net_device *net_dev, struct sk_buff *skb, bool na
 EXPORT_SYMBOL(rtl8125_receive_skb);
 
 int rtl8125_register_notifier(struct net_device *net_dev,
-        struct notifier_block *nb)
+                              struct notifier_block *nb)
 {
         struct rtl8125_private *tp = netdev_priv(net_dev);
 
@@ -608,7 +639,7 @@ int rtl8125_register_notifier(struct net_device *net_dev,
 EXPORT_SYMBOL(rtl8125_register_notifier);
 
 int rtl8125_unregister_notifier(struct net_device *net_dev,
-        struct notifier_block *nb)
+                                struct notifier_block *nb)
 {
         struct rtl8125_private *tp = netdev_priv(net_dev);
 
@@ -619,8 +650,9 @@ EXPORT_SYMBOL(rtl8125_unregister_notifier);
 void rtl8125_lib_reset_prepare(struct rtl8125_private *tp)
 {
         atomic_notifier_call_chain(&tp->lib_nh,
-                        RTL8125_NOTIFY_RESET_PREPARE, NULL);
+                                   RTL8125_NOTIFY_RESET_PREPARE, NULL);
 }
+EXPORT_SYMBOL(rtl8125_lib_reset_prepare);
 
 void rtl8125_lib_reset_complete(struct rtl8125_private *tp)
 {
@@ -651,5 +683,6 @@ void rtl8125_lib_reset_complete(struct rtl8125_private *tp)
         }
 
         atomic_notifier_call_chain(&tp->lib_nh,
-                        RTL8125_NOTIFY_RESET_COMPLETE, NULL);
+                                   RTL8125_NOTIFY_RESET_COMPLETE, NULL);
 }
+EXPORT_SYMBOL(rtl8125_lib_reset_complete);

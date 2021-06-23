@@ -291,7 +291,19 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 	ioss_dev_log(ioss_ch_dev(ch), "Allocated channel %d for interface %s",
 			ch->id, ch->iface->name);
 
+	rc = ioss_debugfs_add_channel(ch);
+	if (rc) {
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to create debugfs nodes");
+		goto err_debugfs;
+	}
+
 	return 0;
+
+err_debugfs:
+	ioss_dev_op(ioss_ch_dev(ch), release_channel, ch);
+	ch->allocated = false;
+	ioss_net_deselect_channel_config(ch);
+	return rc;
 }
 
 static int __ioss_net_free_channel(struct ioss_channel *ch)
@@ -299,6 +311,8 @@ static int __ioss_net_free_channel(struct ioss_channel *ch)
 	int rc;
 	int id = ch->id;
 	struct ioss_device *idev = ioss_ch_dev(ch);
+
+	ioss_debugfs_remove_channel(ch);
 
 	ioss_dev_dbg(idev,
 		"Releasing channel %d for %s", id, ch->iface->name);
@@ -745,6 +759,12 @@ int ioss_net_watch_device(struct ioss_device *idev)
 	int rc = 0;
 	struct ioss_interface *iface;
 
+	rc = ioss_debugfs_add_idev(idev);
+	if (rc) {
+		ioss_dev_err(idev, "Unable to add idev to debugfs");
+		return -EFAULT;
+	}
+
 	ioss_for_each_iface(iface, idev) {
 		INIT_WORK(&iface->refresh, ioss_refresh_work);
 		iface->net_dev_nb.notifier_call = ioss_net_device_event;
@@ -789,6 +809,8 @@ err_register:
 		iface->active_ws = NULL;
 	}
 
+	ioss_debugfs_remove_idev(idev);
+
 	return rc;
 }
 
@@ -816,6 +838,8 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 		wakeup_source_unregister(iface->active_ws);
 		iface->active_ws = NULL;
 	}
+
+	ioss_debugfs_remove_idev(idev);
 
 	return 0;
 }

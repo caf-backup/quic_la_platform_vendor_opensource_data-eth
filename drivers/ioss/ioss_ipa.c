@@ -22,7 +22,8 @@ static void ioss_ipa_notify_cb(void *priv,
 
 	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
 
-	netif_rx_ni(skb);
+	if (netif_rx_ni(skb) == NET_RX_DROP)
+		iface->exception_stats.rx_drops++;
 }
 
 static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,

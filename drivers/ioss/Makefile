@@ -13,6 +13,7 @@ ioss-y := \
 	ioss_bus.o \
 	ioss_pci.o \
 	ioss_net.o \
+	ioss_debugfs.o \
 	ioss_of.o \
 	ioss_ipa.o \
 	ioss_ipa_hal.o \
