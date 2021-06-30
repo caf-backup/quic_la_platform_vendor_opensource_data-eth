@@ -24,6 +24,7 @@
  *   1      - Initial version
  *   2      - Support for crashdump collection
  *   3      - Add debugfs support to get IOSS device and channel stats
+ *   4      - Add head ptr offset and tail ptr offset
  */
 
 #define IOSS_API_VER 3
@@ -290,6 +291,9 @@ struct ioss_channel {
 
 	struct list_head desc_mem;
 	struct list_head buff_mem;
+
+	phys_addr_t head_ptr_addr;
+	phys_addr_t tail_ptr_addr;
 
 	void *private;
 
