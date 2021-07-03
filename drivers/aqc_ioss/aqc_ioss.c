@@ -2,24 +2,20 @@
 /* Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/module.h>
-#include <linux/pci.h>
-#include <linux/gfp.h>
-#include <linux/slab.h>
-#include <linux/device.h>
-#include <linux/pm_wakeup.h>
+#include <net/rtnetlink.h>
 
-#include <linux/msm/ioss.h>
-#include <atl_fwd.h>
+#include "aqc_ioss.h"
 
 #define AQC_FLT_LOC_CATCH_ALL 40
 #define AQC_DRIVER_NAME "atlantic-fwd"
 #define MODULENAME "aqc-ioss"
 
-struct aqc_ioss_device {
-	struct atl_nic *nic;
-	struct notifier_block nb;
-};
+/* 2 uS is the moderation timer unit */
+#define MODT_UNIT 2
+#define MODT_MAX_SHIFT 0x10
+#define MODT_MAX_MASK 0x1FFF
+
+#define RING_SIZE_MASK 0x1FFF
 
 static void *aqc_ioss_dma_alloc(struct ioss_device *idev,
 			       size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -496,6 +492,179 @@ static int aqc_ioss_disable_event(struct ioss_channel *ch)
 	return 0;
 }
 
+static int aqc_ioss_save_regs(struct ioss_device *idev,
+		void **regs, size_t *size)
+{
+	size_t num_regs;
+	struct aqc_ioss_device *aqdev = idev->private;
+	struct aqc_ioss_regs *regs_save = &aqdev->regs_save;
+
+	memset(regs_save, 0, sizeof(*regs_save));
+
+	num_regs = aqc_regs_save(aqdev->nic->hw.regs, regs_save);
+	if (!num_regs)
+		return -EFAULT;
+
+	if (regs)
+		*regs = regs_save;
+
+	if (size)
+		*size = sizeof(*regs_save);
+
+	return 0;
+}
+
+#if IOSS_API_VER >= 3
+static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data, int scount)
+{
+	int i = 0;
+	const char (*strings)[ETH_GSTRING_LEN] = (typeof(strings))strings_data;
+
+	/* iterate through strings[], find matching index */
+	for (i = 0; i < scount; i++) {
+		if (strcmp(name, strings[i]) == 0)
+			return data[i];
+	}
+
+	return 0;
+}
+
+static int aqc_ioss_device_statistics(struct ioss_device *idev,
+					struct ioss_device_stats *statistics)
+{
+	u64 *data;
+	u8 *strings;
+	int strings_count = 0;
+	struct ethtool_stats stats;
+	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+
+	if (ops == NULL || ops->get_sset_count == NULL ||
+				ops->get_ethtool_stats == NULL ||
+				ops->get_strings == NULL)
+		return -EOPNOTSUPP;
+
+	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
+
+	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	strings = kcalloc(strings_count, ETH_GSTRING_LEN, GFP_KERNEL);
+	if (!strings) {
+		kfree(data);
+		return -ENOMEM;
+	}
+
+	memset(&stats, 0, sizeof(stats));
+	stats.n_stats = strings_count;
+
+	rtnl_lock();
+	ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	rtnl_unlock();
+
+	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
+
+	statistics->emac_rx_packets =
+		__get_stats_data("rx_ether_pkts", data, strings, strings_count);
+	statistics->emac_tx_packets =
+		__get_stats_data("tx_ether_pkts", data, strings, strings_count);
+
+	statistics->emac_rx_bytes =
+		__get_stats_data("rx_ether_octets", data, strings, strings_count);
+	statistics->emac_tx_bytes =
+		__get_stats_data("tx_ether_octets", data, strings, strings_count);
+
+	statistics->emac_rx_errors =
+		__get_stats_data("rx_ether_crc_align_errs", data, strings, strings_count);
+
+	statistics->emac_rx_drops =
+		__get_stats_data("rx_ether_drops", data, strings, strings_count);
+
+	statistics->emac_rx_pause_frames =
+		__get_stats_data("rx_pause", data, strings, strings_count);
+	statistics->emac_tx_pause_frames =
+		__get_stats_data("tx_pause", data, strings, strings_count);
+
+	kfree(data);
+	kfree(strings);
+
+	return 0;
+}
+
+static int aqc_ioss_channel_statistics(struct ioss_channel *ch,
+					 struct ioss_channel_stats *statistics)
+{
+	return 0;
+}
+
+static u32 __get_intr_reg(struct atl_fwd_ring *ring)
+{
+	struct atl_hw *hw = &ring->nic->hw;
+
+	if (!(ring->flags & ATL_FWR_TX))
+		return ATL_RX_INTR_MOD_CTRL(ring->idx);
+
+	return (hw->chip_id == ATL_ANTIGUA) ?
+			ATL2_TX_INTR_MOD_CTRL(ring->idx) :
+			ATL_TX_INTR_MOD_CTRL(ring->idx);
+}
+
+static u32 __atl_read(struct atl_nic *nic, u32 addr)
+{
+	return readl_relaxed(nic->hw.regs + addr);
+}
+
+static void get_ch_mod(struct ioss_channel *ch,
+		       struct ioss_channel_status *status)
+{
+	struct atl_fwd_ring *ring = ch->private;
+	u32 reg_addr = __get_intr_reg(ring);
+	u32 modt_val =
+		(__atl_read(ring->nic, reg_addr) >> MODT_MAX_SHIFT) & MODT_MAX_MASK;
+
+	status->interrupt_modt = modt_val * MODT_UNIT;
+}
+
+static void get_ch_enabled(struct ioss_channel *ch,
+			   struct ioss_channel_status *status)
+{
+	struct atl_fwd_ring *ring = ch->private;
+
+	status->enabled = !!(__atl_read(ring->nic, ATL_RING_CTL(&ring->hw)) & BIT(31));
+}
+
+static void get_ch_ring_size(struct ioss_channel *ch,
+			     struct ioss_channel_status *status)
+{
+	struct atl_fwd_ring *ring = ch->private;
+
+	status->ring_size =
+		__atl_read(ring->nic, ATL_RING_CTL(&ring->hw)) & RING_SIZE_MASK;
+}
+
+static void get_ch_head_tail_ptr(struct ioss_channel *ch,
+				 struct ioss_channel_status *status)
+{
+	struct atl_fwd_ring *ring = ch->private;
+
+	status->head_ptr =
+		__atl_read(ring->nic, ATL_RING_HEAD(&ring->hw)) & RING_SIZE_MASK;
+	status->tail_ptr =
+		__atl_read(ring->nic, ATL_RING_TAIL(&ring->hw)) & RING_SIZE_MASK;
+}
+
+static int aqc_ioss_channel_status(struct ioss_channel *ch,
+				     struct ioss_channel_status *status)
+{
+	get_ch_mod(ch, status);
+	get_ch_enabled(ch, status);
+	get_ch_ring_size(ch, status);
+	get_ch_head_tail_ptr(ch, status);
+
+	return 0;
+}
+#endif
+
 static struct ioss_driver_ops aqc_ioss_ops = {
 	.open_device = aqc_ioss_open_device,
 	.close_device = aqc_ioss_close_device,
@@ -511,6 +680,14 @@ static struct ioss_driver_ops aqc_ioss_ops = {
 
 	.enable_event = aqc_ioss_enable_event,
 	.disable_event = aqc_ioss_disable_event,
+
+	.save_regs = aqc_ioss_save_regs,
+
+#if IOSS_API_VER >= 3
+	.get_device_statistics = aqc_ioss_device_statistics,
+	.get_channel_statistics = aqc_ioss_channel_statistics,
+	.get_channel_status = aqc_ioss_channel_status,
+#endif
 };
 
 static bool aqc_driver_match(struct device *dev)
