@@ -27,7 +27,7 @@
  *   4      - Add head ptr offset and tail ptr offset
  */
 
-#define IOSS_API_VER 3
+#define IOSS_API_VER 4
 #define IOSS_SUBSYS "ioss"
 
 /**
