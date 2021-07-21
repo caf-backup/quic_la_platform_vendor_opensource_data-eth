@@ -34,6 +34,10 @@
  *  05 Jul 2021 : 1. Used Systick handler instead of Driver kernel timer to process transmitted Tx descriptors.
  *                2. XFI interface support and module parameters for selection of Port0 and Port1 interface
  *  VERSION     : 01-00-01
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  20 Jul 2021 : CONFIG_DEBUG_FS_TC956X removed and renamed as CONFIG_DEBUG_FS
+ *  VERSION     : 01-00-03
  */  
 
 #ifndef __COMMON_H__
@@ -68,7 +72,7 @@
 #define DWXGMAC_CORE_3_01	0x30
 
 //#define DISABLE_EMAC_PORT1
-//#define DUMP_REGISTER
+
 /* Note: Multiple macro definitions for TC956X_PCIE_LOGSTAT.
  * Please also define/undefine same macro in tc956xmac_ioctl.h, if changing in this file
  */
@@ -911,6 +915,7 @@ enum packets_types {
 #define MSI_INT_TX_CH0		3
 #define MSI_INT_RX_CH0		11
 #define MSI_INT_EXT_PHY		20
+
 #ifdef TC956X_SW_MSI
 #define MSI_INT_SW_MSI		24
 #endif
@@ -1287,7 +1292,11 @@ enum dma_irq_status {
 	handle_rx = 0x4,
 	handle_tx = 0x8,
 };
-
+enum SGMII_2P5G_SUPPORT {
+	SGMII_2P5G_DISABLED = 0, /* For SGMII Speed 1G */
+	SGMII_2P5G_ENABLED = 1, /* For SGMII Speed 2.5G */
+	SGMII_DISABLED = 3, /* For other interfaces (USXGMII/RGMII) */
+};
 /* EEE and LPI defines */
 #define	CORE_IRQ_TX_PATH_IN_LPI_MODE	(1 << 0)
 #define	CORE_IRQ_TX_PATH_EXIT_LPI_MODE	(1 << 1)
