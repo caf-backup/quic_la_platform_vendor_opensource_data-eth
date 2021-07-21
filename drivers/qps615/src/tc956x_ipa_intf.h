@@ -249,7 +249,7 @@ int release_channel(struct net_device *ndev, struct channel_info *channel);
  *	     TRSL_ADDR = DMA_PCIe_ADDR & ~((2 ^ (ATR_SIZE + 1) - 1) = TRSL_ADDR = DMA_PCIe_ADDR & ~Mask
  *	     CM3 Target Address = DMA_PCIe_ADDR & Mask | SRC_ADDR
  */
-int request_event(struct net_device *ndev, struct channel_info *channel, dma_addr_t addr);
+int request_event(struct net_device *ndev, struct channel_info *channel, phys_addr_t db_addr);
 
 
 /*!

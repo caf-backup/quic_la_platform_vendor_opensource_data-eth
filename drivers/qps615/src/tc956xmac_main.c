@@ -85,6 +85,9 @@
 #include "tc956x_pcie_logstat.h"
 #endif /* #ifdef TC956X_PCIE_LOGSTAT */
 
+/*Store port0  priv to pass for dma_map_alloc function for db address*/
+struct device *port0_dev;
+
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 #define PPS_START_DELAY		100000000	/* 100 ms, in unit of ns */
 
@@ -10027,6 +10030,9 @@ int tc956xmac_dvr_probe(struct device *device,
 #ifdef CONFIG_DEBUG_FS
 	tc956xmac_init_fs(ndev);
 #endif
+	if (res->port_num == RM_PF0_ID)
+		port0_dev = priv->device;
+
 
 	return ret;
 

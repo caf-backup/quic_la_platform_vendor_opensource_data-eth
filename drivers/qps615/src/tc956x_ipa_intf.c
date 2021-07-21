@@ -76,6 +76,11 @@ extern void tc956x_config_CM3_tamap(struct device *dev,
 				void __iomem *reg_pci_base_addr,
 				struct tc956xmac_cm3_tamap *tamap,
 				u8 table_entry);
+/*Store port0  priv to pass for dma_map_alloc function for db address*/
+extern struct device *port0_dev;
+dma_addr_t rx_map_addr;
+dma_addr_t tx_map_addr;
+
 /*!
  * \brief This API will return the version of IPA I/F maintained by Toshiba
  *	  The API will check for NULL pointers
@@ -907,7 +912,7 @@ EXPORT_SYMBOL_GPL(release_channel);
  *	     TRSL_ADDR = DMA_PCIe_ADDR & ~((2 ^ (ATR_SIZE + 1) - 1) = TRSL_ADDR = DMA_PCIe_ADDR & ~Mask
  *	     CM3 Target Address = DMA_PCIe_ADDR & Mask | SRC_ADDR
  */
-int request_event(struct net_device *ndev, struct channel_info *channel, dma_addr_t addr)
+int request_event(struct net_device *ndev, struct channel_info *channel, phys_addr_t db_addr)
 {
 	struct tc956xmac_priv *priv;
 	u8 table_entry = 1; /* Table entry 0 is for eMAC */
@@ -915,6 +920,7 @@ int request_event(struct net_device *ndev, struct channel_info *channel, dma_add
 	u32 val, cm3_target_addr;
 	dma_addr_t trsl_addr;
 	unsigned long flags;
+        dma_addr_t addr;
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -933,18 +939,36 @@ int request_event(struct net_device *ndev, struct channel_info *channel, dma_add
 		return -EINVAL;
 	}
 
+	addr = dma_map_resource(port0_dev,
+							db_addr, sizeof(u64),
+							DMA_FROM_DEVICE, 0);
+
+	if (dma_mapping_error(port0_dev, addr)) {
+		netdev_err(priv->dev,
+			"Failed to DMA map DB address");
+		addr = 0;
+		return -EFAULT;
+	}
+
+	if(channel->direction == CH_DIR_RX) {
+		rx_map_addr = addr;
+	}
+	else if (channel->direction == CH_DIR_TX) {
+		tx_map_addr = addr;
+	}
+
 	if ((channel->direction == CH_DIR_RX &&
 		priv->plat->rx_dma_ch_owner[channel->channel_num] != USE_IN_OFFLOADER)) {
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel\n", __func__);
-			return -EPERM;
+			goto error;
 	}
 
 	if ((channel->direction == CH_DIR_TX &&
 		priv->plat->tx_dma_ch_owner[channel->channel_num] != USE_IN_OFFLOADER)) {
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel\n", __func__);
-			return -EPERM;
+			goto error;
 	}
 
 	spin_lock_irqsave(&cm3_tamap_lock, flags);
@@ -1010,7 +1034,7 @@ int request_event(struct net_device *ndev, struct channel_info *channel, dma_add
 	if (cm3_target_addr < CM3_PCIE_REGION_LOW_BOUND || cm3_target_addr >= CM3_PCIE_REGION_UP_BOUND) {
 		netdev_err(priv->dev,
 				"%s: ERROR: PCIe address out of range\n", __func__);
-		return -EPERM;
+		goto error;
 	}
 
 	if (channel->direction == CH_DIR_TX) {
@@ -1028,10 +1052,29 @@ int request_event(struct net_device *ndev, struct channel_info *channel, dma_add
 	} else {
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel direction\n", __func__);
+		dma_unmap_resource(port0_dev,
+		addr, sizeof(u64),
+		DMA_FROM_DEVICE, 0);
 		return -EINVAL;
-
 	}
 	return 0;
+
+error:
+	/* dma unmap TX*/
+	if(tx_map_addr && channel->direction == CH_DIR_TX) {
+		dma_unmap_resource(port0_dev,
+		tx_map_addr, sizeof(u64),
+		DMA_FROM_DEVICE, 0);
+		tx_map_addr = 0;
+	}
+	/* dma unmap RX*/
+	if(rx_map_addr && channel->direction == CH_DIR_RX) {
+		dma_unmap_resource(port0_dev,
+		rx_map_addr, sizeof(u64),
+		DMA_FROM_DEVICE, 0);
+		rx_map_addr = 0;
+	}
+	return -EPERM;
 }
 EXPORT_SYMBOL_GPL(request_event);
 
@@ -1102,7 +1145,21 @@ int release_event(struct net_device *ndev, struct channel_info *channel)
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel direction\n", __func__);
 		return -EINVAL;
+	}
 
+	/* dma unmap TX*/
+	if(tx_map_addr && channel->direction == CH_DIR_TX) {
+		dma_unmap_resource(port0_dev,
+		tx_map_addr, sizeof(u64),
+		DMA_FROM_DEVICE, 0);
+		tx_map_addr = 0;
+	}
+	/* dma unmap RX*/
+	if(rx_map_addr && channel->direction == CH_DIR_RX) {
+		dma_unmap_resource(port0_dev,
+		rx_map_addr, sizeof(u64),
+		DMA_FROM_DEVICE, 0);
+		rx_map_addr = 0;
 	}
 	return 0;
 }
