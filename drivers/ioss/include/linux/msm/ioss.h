@@ -446,6 +446,15 @@ struct ioss_channel_stats {
 	u64 underflow_error;
 };
 
+/**
+ * struct ioss_channel_status - Status information of a channel
+ * @enabled: Channel is enabled and operational
+ * @ring_size: Descriptor ring size is number of elements
+ * @interrupt_modc: Interrupt moderation counter config
+ * @interrupt_modt: Interrumt moderation timer in nanoseconds
+ * @head_ptr: Value of ring head pointer
+ * @tail_ptr: Value of ring tail pointer
+ */
 struct ioss_channel_status {
 	bool enabled;
 	u64 ring_size;

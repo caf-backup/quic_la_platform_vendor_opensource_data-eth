@@ -11,7 +11,8 @@
 #define MODULENAME "aqc-ioss"
 
 /* 2 uS is the moderation timer unit */
-#define MODT_UNIT 2
+#define MODT_UNIT_NS 2000ULL
+
 #define MODT_MAX_SHIFT 0x10
 #define MODT_MAX_MASK 0x1FFF
 
@@ -653,7 +654,7 @@ static void get_ch_mod(struct ioss_channel *ch,
 	u32 modt_val =
 		(__atl_read(ring->nic, reg_addr) >> MODT_MAX_SHIFT) & MODT_MAX_MASK;
 
-	status->interrupt_modt = modt_val * MODT_UNIT;
+	status->interrupt_modt = modt_val * MODT_UNIT_NS;
 }
 
 static void get_ch_enabled(struct ioss_channel *ch,
