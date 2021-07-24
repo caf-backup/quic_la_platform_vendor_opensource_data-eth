@@ -257,14 +257,17 @@ static int r8125_ioss_request_event(struct ioss_channel *ch)
 	int mod;
 	struct rtl8125_ring *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: daddr=%pad, DATA: %llu",
-		&ch->event.daddr, ch->event.data);
+	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pap, DATA: %llu",
+		&ch->event.paddr, ch->event.data);
+
+	if (ioss_channel_map_event(ch))
+		return -EFAULT;
 
 	rc = rtl8125_request_event(ring, MSIX_event_type,
 					ch->event.daddr, ch->event.data);
 	if (rc) {
 		ioss_dev_err(ch->iface->idev, "Failed to request event");
-		return rc;
+		goto err_req_event;
 	}
 
 	/* Each mod unit is 2048 ns (~2 uS). */
@@ -276,11 +279,17 @@ static int r8125_ioss_request_event(struct ioss_channel *ch)
 	if (rc) {
 		ioss_dev_err(ch->iface->idev,
 			"Failed to set interrupt moderation");
-		rtl8125_release_event(ring);
-		return rc;
+		goto err_intr_mod;
 	}
 
 	return 0;
+
+err_intr_mod:
+	rtl8125_release_event(ring);
+err_req_event:
+	ioss_channel_unmap_event(ch);
+
+	return -EFAULT;
 }
 
 static int r8125_ioss_release_event(struct ioss_channel *ch)
@@ -291,6 +300,7 @@ static int r8125_ioss_release_event(struct ioss_channel *ch)
 			&ch->event.daddr, ch->event.data);
 
 	rtl8125_release_event(ring);
+	ioss_channel_unmap_event(ch);
 
 	return 0;
 }

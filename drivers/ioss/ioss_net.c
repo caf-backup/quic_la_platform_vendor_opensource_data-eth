@@ -345,7 +345,6 @@ static void __alloc_channel_revert(struct list_head *node)
 			container_of(node, struct ioss_channel, node));
 }
 
-
 static int ioss_net_alloc_channels(struct ioss_interface *iface)
 {
 	ioss_dev_dbg(iface->idev, "Allocating channels for %s", iface->name);
@@ -447,43 +446,6 @@ static int ioss_net_disable_channels(struct ioss_interface *iface)
 	return rc;
 }
 
-static int __dma_map_event(struct ioss_channel *ch)
-{
-	struct device *dev = ioss_idev_to_real(ioss_ch_dev(ch));
-
-	if (ch->event.daddr)
-		return 0;
-
-	ch->event.daddr = dma_map_resource(dev,
-				ch->event.paddr, sizeof(ch->event.data),
-				DMA_FROM_DEVICE, 0);
-
-	if (dma_mapping_error(dev, ch->event.daddr)) {
-		ioss_dev_dbg(ch->iface->idev,
-				"Failed to DMA map DB address");
-		ch->event.daddr = 0;
-		return -EFAULT;
-	}
-
-	return 0;
-}
-
-static int __dma_unmap_event(struct ioss_channel *ch)
-{
-	struct device *dev = ioss_idev_to_real(ioss_ch_dev(ch));
-
-	if (!ch->event.daddr)
-		return 0;
-
-	dma_unmap_resource(dev,
-			ch->event.daddr, sizeof(ch->event.data),
-			DMA_FROM_DEVICE, 0);
-
-	ch->event.daddr = 0;
-
-	return 0;
-}
-
 static int __ioss_net_setup_event(struct ioss_channel *ch)
 {
 	int rc;
@@ -491,13 +453,6 @@ static int __ioss_net_setup_event(struct ioss_channel *ch)
 
 	ioss_dev_dbg(ch->iface->idev,
 			"Setting up event for channel %d", ch->id);
-
-	rc = __dma_map_event(ch);
-	if (rc) {
-		ioss_dev_err(ch->iface->idev,
-			"Failed to DMA map event for channel %d", ch->id);
-		return rc;
-	}
 
 	rc = ioss_dev_op(idev, request_event, ch);
 	if (rc) {
@@ -524,15 +479,14 @@ static int __ioss_net_setup_event(struct ioss_channel *ch)
 
 err_enable:
 	ioss_dev_op(idev, release_event, ch);
-err_alloc:
-	__dma_unmap_event(ch);
 
+err_alloc:
 	return rc;
 }
 
 static int __ioss_net_teardown_event(struct ioss_channel *ch)
 {
-	int rc1, rc2, rc3;
+	int rc1, rc2;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	ioss_dev_dbg(ch->iface->idev,
@@ -552,12 +506,7 @@ static int __ioss_net_teardown_event(struct ioss_channel *ch)
 	else
 		ch->event.allocated = false;
 
-	rc3 = __dma_unmap_event(ch);
-	if (rc3)
-		ioss_dev_err(ch->iface->idev,
-			"Failed to DMA unmap event for channel %d", ch->id);
-
-	if (rc1 || rc2 || rc3)
+	if (rc1 || rc2)
 		return -EFAULT;
 
 	ioss_dev_log(ch->iface->idev,
