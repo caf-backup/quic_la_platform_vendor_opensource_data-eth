@@ -5,6 +5,9 @@
 #ifndef _IOSS_I_H_
 #define _IOSS_I_H_
 
+#include <linux/stat.h>
+#include <linux/module.h>
+
 #include <linux/if_vlan.h>
 #include <linux/platform_device.h>
 

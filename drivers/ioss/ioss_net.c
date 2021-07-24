@@ -224,11 +224,23 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+static bool disable_tcm;
+module_param(disable_tcm, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(disable_tcm, "Disable use of LLCC TCM memory allocator");
+
 static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 {
 	u32 ring_size;
 	size_t mem_need = ch->config.ring_size * ch->config.buff_size;
-	size_t mem_size = ioss_llcc_alctr.get(mem_need);
+	size_t mem_size;
+
+	if (disable_tcm) {
+		ioss_dev_cfg(ch->iface->idev,
+			"Not allocating TCM since it is disabled in IOSS");
+		return -ENOMEM;
+	}
+
+	mem_size = ioss_llcc_alctr.get(mem_need);
 
 	ioss_dev_cfg(ch->iface->idev,
 		"Requested %u bytes of LLCC, received %u bytes",
