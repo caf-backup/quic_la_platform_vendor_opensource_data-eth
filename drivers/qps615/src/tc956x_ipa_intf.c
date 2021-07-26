@@ -716,6 +716,9 @@ struct channel_info* request_channel(struct request_channel_input *channel_input
 		tc956xmac_init_ipa_rx_ch(priv, channel);
 		tc956xmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		channel_input->tail_ptr_addr = XGMAC_DMA_CH_RxDESC_TAIL_LPTR(channel->channel_num);
+		//WA for IPA offload L2 filtering
+		writel(0xBF000000, priv->ioaddr + XGMAC_ADDRx_HIGH(1));
+		writel(0x0, priv->ioaddr + XGMAC_ADDRx_LOW(1));
 	} else {
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel direction\n", __func__);
