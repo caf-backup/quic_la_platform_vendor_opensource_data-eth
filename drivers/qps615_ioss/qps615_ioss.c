@@ -183,48 +183,78 @@ static int qps615_ioss_release_event(struct ioss_channel *ch)
 	return 0;
 }
 
+enum {
+	FLT_TYPE_IP4,
+	FLT_TYPE_IP6,
+	FLT_TYPE_VLAN,
+
+	/* Must be the last entry */
+	FLT_NUM_TYPES,
+};
+
 static int qps615_set_filter_info(struct rx_filter_info *filter_info)
 {
+	if (ARRAY_SIZE(filter_info->entries) < FLT_NUM_TYPES)
+		return -EFAULT;
+
 	/* Number of filter installed*/
-	filter_info->npe = 0x2;
-	filter_info->nve = 0x2;
+	filter_info->npe = FLT_NUM_TYPES;
+	filter_info->nve = FLT_NUM_TYPES;
 
 	/* Ipv4 ether type 0x0800
 	 * Only Check for 0x08 and 0x00
 	 */
-	filter_info->entries[0].match_data = 0x00000008;
-	filter_info->entries[0].match_en = 0x0000FFFF;
-	filter_info->entries[0].af = 1;
-	filter_info->entries[0].rf = 0;
-	filter_info->entries[0].im = 0;
-	filter_info->entries[0].nc = 0;
-	filter_info->entries[0].res1 = 0;
-	filter_info->entries[0].frame_offset = 3;
-	filter_info->entries[0].res2 = 0;
-	filter_info->entries[0].ok_index = 0;
-	filter_info->entries[0].res3 = 0;
-	filter_info->entries[0].dma_ch_no = 2;
-	filter_info->entries[0].res4 = 0;
+	filter_info->entries[FLT_TYPE_IP4].match_data = 0x00000008;
+	filter_info->entries[FLT_TYPE_IP4].match_en = 0x0000FFFF;
+	filter_info->entries[FLT_TYPE_IP4].af = 1;
+	filter_info->entries[FLT_TYPE_IP4].rf = 0;
+	filter_info->entries[FLT_TYPE_IP4].im = 0;
+	filter_info->entries[FLT_TYPE_IP4].nc = 0;
+	filter_info->entries[FLT_TYPE_IP4].res1 = 0;
+	filter_info->entries[FLT_TYPE_IP4].frame_offset = 3;
+	filter_info->entries[FLT_TYPE_IP4].res2 = 0;
+	filter_info->entries[FLT_TYPE_IP4].ok_index = 0;
+	filter_info->entries[FLT_TYPE_IP4].res3 = 0;
+	filter_info->entries[FLT_TYPE_IP4].dma_ch_no = 2;
+	filter_info->entries[FLT_TYPE_IP4].res4 = 0;
 
 	/* Ipv6 ether type 0x86DD
 	 * Only Check for 0x86 and 0xDD
 	 */
-	filter_info->entries[1].match_data = 0x0000DD86;
-	filter_info->entries[1].match_en = 0x0000FFFF;
-	filter_info->entries[1].af = 1;
-	filter_info->entries[1].rf = 0;
-	filter_info->entries[1].im = 0;
-	filter_info->entries[1].nc = 0;
-	filter_info->entries[1].res1 = 0;
-	filter_info->entries[1].frame_offset = 3;
-	filter_info->entries[1].res2 = 0;
-	filter_info->entries[1].ok_index = 0;
-	filter_info->entries[1].res3 = 0;
-	filter_info->entries[1].dma_ch_no = 2;
-	filter_info->entries[1].res4 = 0;
+	filter_info->entries[FLT_TYPE_IP6].match_data = 0x0000DD86;
+	filter_info->entries[FLT_TYPE_IP6].match_en = 0x0000FFFF;
+	filter_info->entries[FLT_TYPE_IP6].af = 1;
+	filter_info->entries[FLT_TYPE_IP6].rf = 0;
+	filter_info->entries[FLT_TYPE_IP6].im = 0;
+	filter_info->entries[FLT_TYPE_IP6].nc = 0;
+	filter_info->entries[FLT_TYPE_IP6].res1 = 0;
+	filter_info->entries[FLT_TYPE_IP6].frame_offset = 3;
+	filter_info->entries[FLT_TYPE_IP6].res2 = 0;
+	filter_info->entries[FLT_TYPE_IP6].ok_index = 0;
+	filter_info->entries[FLT_TYPE_IP6].res3 = 0;
+	filter_info->entries[FLT_TYPE_IP6].dma_ch_no = 2;
+	filter_info->entries[FLT_TYPE_IP6].res4 = 0;
+
+	/* VLAN  ether type 0x8100
+	 * Only Check for 0x81 and 0x00
+	 */
+	filter_info->entries[FLT_TYPE_VLAN].match_data = 0x00000081;
+	filter_info->entries[FLT_TYPE_VLAN].match_en = 0x0000FFFF;
+	filter_info->entries[FLT_TYPE_VLAN].af = 1;
+	filter_info->entries[FLT_TYPE_VLAN].rf = 0;
+	filter_info->entries[FLT_TYPE_VLAN].im = 0;
+	filter_info->entries[FLT_TYPE_VLAN].nc = 0;
+	filter_info->entries[FLT_TYPE_VLAN].res1 = 0;
+	filter_info->entries[FLT_TYPE_VLAN].frame_offset = 3;
+	filter_info->entries[FLT_TYPE_VLAN].res2 = 0;
+	filter_info->entries[FLT_TYPE_VLAN].ok_index = 0;
+	filter_info->entries[FLT_TYPE_VLAN].res3 = 0;
+	filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
+	filter_info->entries[FLT_TYPE_VLAN].res4 = 0;
 
 	return 0;
 }
+
 static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 {
 	struct net_device *net_dev = ioss_ch_dev(ch)->net_dev;
@@ -244,7 +274,11 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 
 		clear_rx_filter(net_dev);
 
-		qps615_set_filter_info(&filter_info);
+		if (qps615_set_filter_info(&filter_info)) {
+			ioss_dev_err(ch->iface->idev,
+					"Failed to set FRP filters");
+			return -EFAULT;
+		}
 
 		if (set_rx_filter(net_dev, &filter_info)) {
 			ioss_dev_err(ch->iface->idev, "Failed to install rss filter\n");
