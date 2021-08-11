@@ -10,6 +10,7 @@ CCFLAGS += -m32
 endif
 
 DMA_OFFLOAD = 1
+ccflags-y := -DQCA808X_MOD_LOAD_QUIRK
 
 obj-$(CONFIG_QPS615) += qps615.o
 qps615-y += tc956xmac_main.o tc956xmac_ethtool.o tc956xmac_mdio.o \
