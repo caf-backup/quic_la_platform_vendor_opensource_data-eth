@@ -107,6 +107,8 @@ struct rtl8125_ring *rtl8125_get_tx_ring(struct rtl8125_private *tp)
 {
         int i;
 
+        WARN_ON_ONCE(tp->num_tx_rings < 1);
+
         for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
                 struct rtl8125_ring *ring = &tp->lib_tx_ring[i];
                 if (!ring->allocated) {
@@ -121,6 +123,8 @@ struct rtl8125_ring *rtl8125_get_tx_ring(struct rtl8125_private *tp)
 struct rtl8125_ring *rtl8125_get_rx_ring(struct rtl8125_private *tp)
 {
         int i;
+
+        WARN_ON_ONCE(tp->num_rx_rings < 1);
 
         for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
                 struct rtl8125_ring *ring = &tp->lib_rx_ring[i];
@@ -144,27 +148,31 @@ static void rtl8125_put_ring(struct rtl8125_ring *ring)
 static void rtl8125_init_rx_ring(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp = ring->private;
+        u16 rdsar_reg;
 
         if (!ring->allocated)
                 return;
 
         rtl8125_lib_rx_fill(ring);
 
-        RTL_W32(tp, RDSAR_Q1_LOW_8125, ((u64)ring->desc_daddr & DMA_BIT_MASK(32)));
-        RTL_W32(tp, RDSAR_Q1_LOW_8125 + 4, ((u64)ring->desc_daddr >> 32));
+        rdsar_reg = RDSAR_Q1_LOW_8125 + (ring->queue_num - 1) * 8;
+        RTL_W32(tp, rdsar_reg, ((u64)ring->desc_daddr & DMA_BIT_MASK(32)));
+        RTL_W32(tp, rdsar_reg + 4, ((u64)ring->desc_daddr >> 32));
 }
 
 static void rtl8125_init_tx_ring(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp = ring->private;
+        u16 tdsar_reg;
 
         if (!ring->allocated)
                 return;
 
         rtl8125_lib_tx_fill(ring);
 
-        RTL_W32(tp, TNPDS_Q1_LOW_8125, ((u64)ring->desc_daddr & DMA_BIT_MASK(32)));
-        RTL_W32(tp, TNPDS_Q1_LOW_8125 + 4, ((u64)ring->desc_daddr >> 32));
+        tdsar_reg = TNPDS_Q1_LOW_8125 + (ring->queue_num - 1) * 8;
+        RTL_W32(tp, tdsar_reg, ((u64)ring->desc_daddr & DMA_BIT_MASK(32)));
+        RTL_W32(tp, tdsar_reg + 4, ((u64)ring->desc_daddr >> 32));
 }
 
 static void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
@@ -658,7 +666,7 @@ void rtl8125_lib_reset_complete(struct rtl8125_private *tp)
 {
         int i;
 
-        for (i = 0; i < tp->HwSuppNumTxQueues; i++) {
+        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
                 struct rtl8125_ring *ring = &tp->lib_tx_ring[i];
 
                 if (!ring->allocated)
@@ -670,7 +678,7 @@ void rtl8125_lib_reset_complete(struct rtl8125_private *tp)
                 rtl8125_init_tx_ring(ring);
         }
 
-        for (i = 0; i < tp->HwSuppNumRxQueues; i++) {
+        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
                 struct rtl8125_ring *ring = &tp->lib_rx_ring[i];
 
                 if (!ring->allocated)
@@ -686,3 +694,231 @@ void rtl8125_lib_reset_complete(struct rtl8125_private *tp)
                                    RTL8125_NOTIFY_RESET_COMPLETE, NULL);
 }
 EXPORT_SYMBOL(rtl8125_lib_reset_complete);
+
+#define rtl8125_statistics rtl8125_counters
+int rtl8125_lib_get_stats(struct net_device *ndev, struct rtl8125_statistics *stats)
+{
+        struct rtl8125_private *tp = netdev_priv(ndev);
+        struct rtl8125_counters *counters;
+        dma_addr_t paddr;
+        int rc = -1;
+
+        if (!stats)
+                goto out;
+
+        counters = tp->tally_vaddr;
+        paddr = tp->tally_paddr;
+        if (!counters)
+                goto out;
+
+        rc = rtl8125_dump_tally_counter(tp, paddr);
+        if (rc < 0)
+                goto out;
+
+        *stats = *counters;
+
+out:
+        return rc;
+}
+EXPORT_SYMBOL(rtl8125_lib_get_stats);
+
+int rtl8125_lib_save_regs(struct net_device *ndev, struct rtl8125_regs_save *stats)
+{
+        struct rtl8125_private *tp = netdev_priv(ndev);
+        int i, max;
+
+        //macio
+        max = R8125_MAC_REGS_SIZE;
+        for (i = 0; i < max; i++)
+                stats->mac_io[i] = RTL_R8(tp, i);
+
+        //pcie_phy
+        max = R8125_EPHY_REGS_SIZE/2;
+        for (i = 0; i < max; i++)
+                stats->pcie_phy[i] = rtl8125_ephy_read(tp, i);
+
+        //eth_phy
+        max = R8125_PHY_REGS_SIZE/2;
+        rtl8125_mdio_write(tp, 0x1f, 0x0000);
+        for (i = 0; i < max; i++)
+                stats->eth_phy[i] = rtl8125_mdio_read(tp, i);
+
+        //eri
+        max = R8125_ERI_REGS_SIZE/4;
+        for (i = 0; i < max; i++)
+                stats->eri_reg[i] = rtl8125_eri_read(tp, i, 4, ERIAR_ExGMAC);
+
+        //pci_reg
+        max = R8125_PCI_REGS_SIZE/4;
+        for (i = 0; i < max; i++)
+                pci_read_config_dword(tp->pci_dev, i, &stats->pci_reg[i]);
+
+        //tx sw/hw pointer
+        max = R8125_MAX_TX_QUEUES;
+        for (i = 0; i < R8125_MAX_TX_QUEUES; i++) {
+                stats->sw_tail_ptr_reg[i] = RTL_R16(tp, tp->tx_ring[i].sw_tail_ptr_reg);
+                stats->hw_clo_ptr_reg[i] = RTL_R16(tp, tp->tx_ring[i].hw_clo_ptr_reg);
+        }
+
+        //sw0_tail_ptr and next_hwq0_clo_ptr
+        stats->sw0_tail_ptr = RTL_R16(tp, SW_TAIL_PTR0_8125);
+        stats->next_hwq0_clo_ptr = RTL_R16(tp, HW_CLO_PTR0_8125);
+        stats->sw1_tail_ptr = RTL_R16(tp, SW_TAIL_PTR0_8125 + 4);
+        stats->next_hwq1_clo_ptr = RTL_R16(tp, HW_CLO_PTR0_8125 + 4);
+
+        //int_miti
+        stats->int_miti_rxq0 = RTL_R8(tp, INT_MITI_V2_0_RX);
+        stats->int_miti_txq0 = RTL_R8(tp, INT_MITI_V2_0_TX);
+        stats->int_miti_rxq1 = RTL_R8(tp, INT_MITI_V2_1_RX);
+        stats->int_miti_txq1 = RTL_R8(tp, INT_MITI_V2_1_TX);
+
+        //imr/isr
+        stats->imr_new = RTL_R32(tp, IMR0_8125);
+        stats->isr_new = RTL_R32(tp, ISR0_8125);
+
+        //tdu/rdu
+        stats->tdu_status = RTL_R8(tp, TDU_STA_8125);
+        stats->rdu_status = RTL_R16(tp, RDU_STA_8125);
+
+        //tc mode
+        stats->tc_mode = RTL_R16(tp, TX_NEW_CTRL);
+
+        //pla_tx_q0_idle_credit
+        stats->pla_tx_q0_idle_credit = RTL_R32(tp, PLA_TXQ0_IDLE_CREDIT);
+        stats->pla_tx_q1_idle_credit = RTL_R32(tp, PLA_TXQ1_IDLE_CREDIT);
+
+        //txq1_dsc_st_addr
+        stats->txq1_dsc_st_addr_0 = RTL_R32(tp, TNPDS_Q1_LOW_8125);
+        stats->txq1_dsc_st_addr_2 = RTL_R32(tp, TNPDS_Q1_LOW_8125 + 4);
+
+        //rxq1_dsc_st_addr
+        stats->rxq1_dsc_st_addr_0 = RTL_R32(tp, RDSAR_Q1_LOW_8125);
+        stats->rxq1_dsc_st_addr_2 = RTL_R32(tp, RDSAR_Q1_LOW_8125 + 4);
+
+        //rss
+        stats->rss_ctrl = RTL_R32(tp, RSS_CTRL_8125);
+        for (i = 0; i < RTL8125_RSS_KEY_SIZE; i++)
+                stats->rss_key[i] = RTL_R8(tp, RSS_KEY_8125 + i);
+
+        for (i = 0; i < RTL8125_MAX_INDIRECTION_TABLE_ENTRIES; i++)
+                stats->rss_i_table[i] = RTL_R8(tp, RSS_INDIRECTION_TBL_8125_V2 + i);
+
+        stats->rss_queue_num_sel_r = RTL_R16(tp, Q_NUM_CTRL_8125);
+
+        return 0;
+}
+EXPORT_SYMBOL(rtl8125_lib_save_regs);
+
+/*
+int rtl8125_lib_printf_macio_regs(struct net_device *ndev, struct rtl8125_regs_save *stats)
+{
+        struct rtl8125_private *tp = netdev_priv(ndev);
+        int i;
+
+        //00
+        for(i=0; i<6; i++)
+                printk("mac_id[6] = 0x%x\n", stats->mac_reg.mac_id[i]);
+        printk("reg_06 = 0x%x\n", stats->mac_reg.reg_06);
+        for(i=0; i<8; i++)
+                printk("mar[8] = 0x%x\n", stats->mac_reg.mar[i]);
+        //10
+        printk("dtccr = 0x%llx\n", stats->mac_reg.dtccr);
+        printk("ledsel0 = 0x%x\n", stats->mac_reg.ledsel0);
+        printk("legreg = 0x%x\n", stats->mac_reg.legreg);
+        printk("tctr3 = 0x%x\n", stats->mac_reg.tctr3);
+        //20
+        printk("txq0_desc_addr = 0x%llx\n", stats->mac_reg.txq0_desc_addr);
+        printk("reg_28 = 0x%llx\n", stats->mac_reg.reg_28);
+        //30
+        printk("rit = 0x%x\n", stats->mac_reg.rit);
+        printk("ritc = 0x%x\n", stats->mac_reg.ritc);
+        printk("reg_34 = 0x%x\n", stats->mac_reg.reg_34);
+        printk("cr = 0x%x\n", stats->mac_reg.cr);
+        printk("imr0 = 0x%x\n", stats->mac_reg.imr0);
+        printk("isr0 = 0x%x\n", stats->mac_reg.isr0);
+        //40
+        printk("tcr = 0x%x\n", stats->mac_reg.tcr);
+        printk("rcr = 0x%x\n", stats->mac_reg.rcr);
+        printk("tctr0 = 0x%x\n", stats->mac_reg.tctr0);
+        printk("tctr1 = 0x%x\n", stats->mac_reg.tctr1);
+        //50
+        printk("cr93c46 = 0x%x\n", stats->mac_reg.cr93c46);
+        printk("config0 = 0x%x\n", stats->mac_reg.config0);
+        printk("config1 = 0x%x\n", stats->mac_reg.config1);
+        printk("config2 = 0x%x\n", stats->mac_reg.config2);
+        printk("config3 = 0x%x\n", stats->mac_reg.config3);
+        printk("config4 = 0x%x\n", stats->mac_reg.config4);
+        printk("config5 = 0x%x\n", stats->mac_reg.config5);
+        printk("tdfnr = 0x%x\n", stats->mac_reg.tdfnr);
+        printk("timer_int0 = 0x%x\n", stats->mac_reg.timer_int0);
+        printk("timer_int1 = 0x%x\n", stats->mac_reg.timer_int1);
+        //60
+        printk("gphy_mdcmdio = 0x%x\n", stats->mac_reg.gphy_mdcmdio);
+        printk("csidr = 0x%x\n", stats->mac_reg.csidr);
+        printk("csiar = 0x%x\n", stats->mac_reg.csiar);
+        printk("phy_status = 0x%x\n", stats->mac_reg.phy_status);
+        printk("config6 = 0x%x\n", stats->mac_reg.config6);
+        printk("pmch = 0x%x\n", stats->mac_reg.pmch);
+        //70
+        printk("eridr = 0x%x\n", stats->mac_reg.eridr);
+        printk("eriar = 0x%x\n", stats->mac_reg.eriar);
+        printk("config7 = 0x%x\n", stats->mac_reg.config7);
+        printk("reg_7a = 0x%x\n", stats->mac_reg.reg_7a);
+        printk("ephy_rxerr_cnt = 0x%x\n", stats->mac_reg.ephy_rxerr_cnt);
+        //80
+        printk("ephy_mdcmdio = 0x%x\n", stats->mac_reg.ephy_mdcmdio);
+        printk("ledsel2 = 0x%x\n", stats->mac_reg.ledsel2);
+        printk("ledsel1 = 0x%x\n", stats->mac_reg.ledsel1);
+        printk("tctr2 = 0x%x\n", stats->mac_reg.tctr2);
+        printk("timer_int2 = 0x%x\n", stats->mac_reg.timer_int2);
+        //90
+        printk("tppoll0 = 0x%x\n", stats->mac_reg.tppoll0);
+        printk("reg_91 = 0x%x\n", stats->mac_reg.reg_91);
+        printk("reg_92 = 0x%x\n", stats->mac_reg.reg_92);
+        printk("led_feature = 0x%x\n", stats->mac_reg.led_feature);
+        printk("ledsel3 = 0x%x\n", stats->mac_reg.ledsel3);
+        printk("eee_led_config = 0x%x\n", stats->mac_reg.eee_led_config);
+        printk("reg_9a = 0x%x\n", stats->mac_reg.reg_9a);
+        printk("reg_9c = 0x%x\n", stats->mac_reg.reg_9c);
+        //a0
+        printk("reg_a0 = 0x%x\n", stats->mac_reg.reg_a0);
+        printk("reg_a4 = 0x%x\n", stats->mac_reg.reg_a4);
+        printk("reg_a8 = 0x%x\n", stats->mac_reg.reg_a8);
+        printk("reg_ac = 0x%x\n", stats->mac_reg.reg_ac);
+        //b0
+        printk("patch_dbg = 0x%x\n", stats->mac_reg.patch_dbg);
+        printk("reg_b4 = 0x%x\n", stats->mac_reg.reg_b4);
+        printk("gphy_ocp = 0x%x\n", stats->mac_reg.gphy_ocp);
+        printk("reg_bc = 0x%x\n", stats->mac_reg.reg_bc);
+        //c0
+        printk("reg_c0 = 0x%x\n", stats->mac_reg.reg_c0);
+        printk("reg_c4 = 0x%x\n", stats->mac_reg.reg_c4);
+        printk("reg_c8 = 0x%x\n", stats->mac_reg.reg_c8);
+        printk("otp_cmd = 0x%x\n", stats->mac_reg.otp_cmd);
+        printk("otp_pg_config = 0x%x\n", stats->mac_reg.otp_pg_config);
+        //d0
+        printk("phy_pwr = 0x%x\n", stats->mac_reg.phy_pwr);
+        printk("twsi_ctrl = 0x%x\n", stats->mac_reg.twsi_ctrl);
+        printk("oob_ctrl = 0x%x\n", stats->mac_reg.oob_ctrl);
+        printk("mac_dbgo = 0x%x\n", stats->mac_reg.mac_dbgo);
+        printk("mac_dbg = 0x%x\n", stats->mac_reg.mac_dbg);
+        printk("reg_d8 = 0x%x\n", stats->mac_reg.reg_d8);
+        printk("rms = 0x%x\n", stats->mac_reg.rms);
+        printk("efuse_data = 0x%x\n", stats->mac_reg.efuse_data);
+        //e0
+        printk("cpcr = 0x%x\n", stats->mac_reg.cpcr);
+        printk("reg_e2 = 0x%x\n", stats->mac_reg.reg_e2);
+        printk("rxq0_desc_addr = 0x%llx\n", stats->mac_reg.rxq0_desc_addr);
+        printk("reg_ec = 0x%x\n", stats->mac_reg.reg_ec);
+        printk("tx10midle_cnt = 0x%x\n", stats->mac_reg.tx10midle_cnt);
+        //f0
+        printk("misc0 = 0x%x\n", stats->mac_reg.misc0);
+        printk("misc1 = 0x%x\n", stats->mac_reg.misc1);
+        printk("timer_int3 = 0x%x\n", stats->mac_reg.timer_int3);
+        printk("cmac_ib = 0x%x\n", stats->mac_reg.cmac_ib);
+        printk("reg_fc = 0x%x\n", stats->mac_reg.reg_fc);
+        printk("sw_rst = 0x%x\n", stats->mac_reg.sw_rst);
+
+        return 0;
+}
+*/

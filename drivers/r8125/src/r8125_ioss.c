@@ -40,7 +40,7 @@ enum RTL8125_registers_extra {
 	R8125_RSS_I_TABLE = 0x4700,
 };
 
-struct rtl8125_regs {
+struct __rtl8125_regs {
 	ktime_t begin_ktime;
 	ktime_t end_ktime;
 	u64 duration_ns;
@@ -94,7 +94,7 @@ struct r8125_ioss_device {
 	struct ioss_device *idev;
 	struct rtl8125_private *_tp;
 	struct notifier_block nb;
-	struct rtl8125_regs regs_save;
+	struct __rtl8125_regs regs_save;
 };
 
 static int r8125_notifier_cb(struct notifier_block *nb,
@@ -403,7 +403,7 @@ static int r8125_save_regs(struct ioss_device *idev,
 {
 	struct r8125_ioss_device *rtldev = idev->private;
 	struct rtl8125_private *tp = rtldev->_tp;
-	struct rtl8125_regs *rtl_regs = &rtldev->regs_save;
+	struct __rtl8125_regs *rtl_regs = &rtldev->regs_save;
 	int i;
 
 	rtl_regs->begin_ktime = ktime_get();
