@@ -88,8 +88,7 @@ extern void tc956x_config_CM3_tamap(struct device *dev,
 				void __iomem *reg_pci_base_addr,
 				struct tc956xmac_cm3_tamap *tamap,
 				u8 table_entry);
-/*Store port0  priv to pass for dma_map_alloc function for db address*/
-extern struct device *port0_dev;
+
 dma_addr_t rx_map_addr;
 dma_addr_t tx_map_addr;
 
@@ -752,9 +751,6 @@ struct channel_info* request_channel(struct request_channel_input *channel_input
 		tc956xmac_init_ipa_rx_ch(priv, channel);
 		tc956xmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		channel_input->tail_ptr_addr = XGMAC_DMA_CH_RxDESC_TAIL_LPTR(channel->channel_num);
-		//WA for IPA offload L2 filtering
-		writel(0xBF000000, priv->ioaddr + XGMAC_ADDRx_HIGH(1));
-		writel(0x0, priv->ioaddr + XGMAC_ADDRx_LOW(1));
 	} else {
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel direction\n", __func__);
@@ -970,11 +966,11 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 		return -EINVAL;
 	}
 
-	addr = dma_map_resource(port0_dev,
+	addr = dma_map_resource(&(port0_pdev->dev),
 							db_addr, sizeof(u64),
 							DMA_FROM_DEVICE, 0);
 
-	if (dma_mapping_error(port0_dev, addr)) {
+	if (dma_mapping_error(&(port0_pdev->dev), addr)) {
 		netdev_err(priv->dev,
 			"Failed to DMA map DB address");
 		addr = 0;
@@ -1083,7 +1079,7 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 	} else {
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel direction\n", __func__);
-		dma_unmap_resource(port0_dev,
+		dma_unmap_resource(&(port0_pdev->dev),
 		addr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
 		return -EINVAL;
@@ -1093,14 +1089,14 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 error:
 	/* dma unmap TX*/
 	if(tx_map_addr && channel->direction == CH_DIR_TX) {
-		dma_unmap_resource(port0_dev,
+		dma_unmap_resource(&(port0_pdev->dev),
 		tx_map_addr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
 		tx_map_addr = 0;
 	}
 	/* dma unmap RX*/
 	if(rx_map_addr && channel->direction == CH_DIR_RX) {
-		dma_unmap_resource(port0_dev,
+		dma_unmap_resource(&(port0_pdev->dev),
 		rx_map_addr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
 		rx_map_addr = 0;
@@ -1180,14 +1176,14 @@ int release_event(struct net_device *ndev, struct channel_info *channel)
 
 	/* dma unmap TX*/
 	if(tx_map_addr && channel->direction == CH_DIR_TX) {
-		dma_unmap_resource(port0_dev,
+		dma_unmap_resource(&(port0_pdev->dev),
 		tx_map_addr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
 		tx_map_addr = 0;
 	}
 	/* dma unmap RX*/
 	if(rx_map_addr && channel->direction == CH_DIR_RX) {
-		dma_unmap_resource(port0_dev,
+		dma_unmap_resource(&(port0_pdev->dev),
 		rx_map_addr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
 		rx_map_addr = 0;
