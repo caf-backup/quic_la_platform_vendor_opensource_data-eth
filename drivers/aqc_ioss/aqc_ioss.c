@@ -524,21 +524,18 @@ static int aqc_ioss_disable_event(struct ioss_channel *ch)
 static int aqc_ioss_save_regs(struct ioss_device *idev,
 		void **regs, size_t *size)
 {
-	size_t num_regs;
+	int alloc_size, ret = 0;
 	struct aqc_ioss_device *aqdev = idev->private;
-	struct aqc_ioss_regs *regs_save = &aqdev->regs_save;
 
-	memset(regs_save, 0, sizeof(*regs_save));
+	ret = atl_get_ext_stats(idev->net_dev, &aqdev->stats);
+	if (ret)
+		ioss_dev_err(idev, "Failed to save AQC device statistics");
 
-	num_regs = aqc_regs_save(aqdev->nic->hw.regs, regs_save);
-	if (!num_regs)
-		return -EFAULT;
-
-	if (regs)
-		*regs = regs_save;
-
-	if (size)
-		*size = sizeof(*regs_save);
+	ret = atl_get_crash_dump(idev->net_dev, &aqdev->regs_save);
+	if (ret == sizeof(struct atl_crash_dump) ) {
+		ioss_dev_err(idev, "Failed to save crashdump");
+		return ret;
+	}
 
 	return 0;
 }
