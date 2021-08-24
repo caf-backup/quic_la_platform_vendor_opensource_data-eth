@@ -52,7 +52,7 @@
 #include <net/page_pool.h>
 #include <linux/version.h>
 
-//#define TC956X_LOAD_FW_HEADER
+#define TC956X_LOAD_FW_HEADER
 #define PF_DRIVER 4
 
 //#define DMA_OFFLOAD_ENABLE
@@ -76,7 +76,7 @@
 #define TC956X_TX_QUEUES 8
 #define TC956X_RX_QUEUES 8
 
-#define FIRMWARE_NAME "qps615_fw.bin"
+#define FIRMWARE_NAME "TC956X_Firmware_PCIeBridge.bin"
 
 #ifdef TC956X
 
