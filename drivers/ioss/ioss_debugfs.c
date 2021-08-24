@@ -2,8 +2,6 @@
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/debugfs.h>
-
 #include "ioss_i.h"
 
 static struct dentry *root_dir;
