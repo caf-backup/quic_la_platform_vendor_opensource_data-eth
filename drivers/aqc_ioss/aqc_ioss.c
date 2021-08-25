@@ -11,7 +11,8 @@
 #define MODULENAME "aqc-ioss"
 
 /* 2 uS is the moderation timer unit */
-#define MODT_UNIT 2
+#define MODT_UNIT_NS 2000ULL
+
 #define MODT_MAX_SHIFT 0x10
 #define MODT_MAX_MASK 0x1FFF
 
@@ -295,26 +296,23 @@ static int aqc_ioss_request_event(struct ioss_channel *ch)
 	struct atl_fwd_event *event = NULL;
 	struct atl_fwd_event atl_event = {0};
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: daddr=%pad, DATA: %llu",
-		&ch->event.daddr, ch->event.data);
+	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pap, DATA: %llu",
+		&ch->event.paddr, ch->event.data);
 
-	switch (ch->direction) {
-	case IOSS_CH_DIR_RX:
+	if (ioss_channel_map_event(ch))
+		return -EFAULT;
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
 		atl_event.msi_addr = ch->event.daddr;
 		atl_event.msi_data = (u32)ch->event.data;
-		break;
-	case IOSS_CH_DIR_TX:
+	} else {
 		atl_event.flags = ATL_FWD_EVT_TXWB;
 		atl_event.tx_head_wrb = ch->event.daddr;
-		break;
-	default:
-		ioss_dev_err(ch->iface->idev, "Unsupported direction %d\n", ch->direction);
-		return -ENODEV;
 	}
 
 	event = kzalloc(sizeof(*event), GFP_KERNEL);
-		if (!event)
-			return -ENOMEM;
+	if (!event)
+		goto err_alloc;
 
 	*event = atl_event;
 	event->ring = ring;
@@ -339,6 +337,8 @@ err_intr_mod:
 	atl_fwd_release_event(event);
 err_req_event:
 	kzfree(event);
+err_alloc:
+	ioss_channel_unmap_event(ch);
 
 	return -EINVAL;
 }
@@ -346,11 +346,14 @@ err_req_event:
 static int aqc_ioss_release_event(struct ioss_channel *ch)
 {
 	struct atl_fwd_ring *ring = ch->private;
+	struct atl_fwd_event *event = ring->evt;
 
 	ioss_dev_log(ch->iface->idev, "Release EVENT: daddr=%pad, DATA: %llu",
 		&ch->event.daddr, ch->event.data);
 
-	atl_fwd_release_event(ring->evt);
+	atl_fwd_release_event(event);
+	kzfree(event);
+	ioss_channel_unmap_event(ch);
 
 	return 0;
 }
@@ -651,7 +654,7 @@ static void get_ch_mod(struct ioss_channel *ch,
 	u32 modt_val =
 		(__atl_read(ring->nic, reg_addr) >> MODT_MAX_SHIFT) & MODT_MAX_MASK;
 
-	status->interrupt_modt = modt_val * MODT_UNIT;
+	status->interrupt_modt = modt_val * MODT_UNIT_NS;
 }
 
 static void get_ch_enabled(struct ioss_channel *ch,
