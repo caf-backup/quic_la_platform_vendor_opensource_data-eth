@@ -89,9 +89,6 @@ extern void tc956x_config_CM3_tamap(struct device *dev,
 				struct tc956xmac_cm3_tamap *tamap,
 				u8 table_entry);
 
-dma_addr_t rx_map_addr;
-dma_addr_t tx_map_addr;
-
 /*!
  * \brief This API will return the version of IPA I/F maintained by Toshiba
  *	  The API will check for NULL pointers
@@ -977,12 +974,7 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 		return -EFAULT;
 	}
 
-	if(channel->direction == CH_DIR_RX) {
-		rx_map_addr = addr;
-	}
-	else if (channel->direction == CH_DIR_TX) {
-		tx_map_addr = addr;
-	}
+	channel->dma_map_dbaddr = addr;
 
 	if ((channel->direction == CH_DIR_RX &&
 		priv->plat->rx_dma_ch_owner[channel->channel_num] != USE_IN_OFFLOADER)) {
@@ -1087,20 +1079,12 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 	return 0;
 
 error:
-	/* dma unmap TX*/
-	if(tx_map_addr && channel->direction == CH_DIR_TX) {
-		dma_unmap_resource(&(port0_pdev->dev),
-		tx_map_addr, sizeof(u64),
+	dma_unmap_resource(&(port0_pdev->dev),
+		channel->dma_map_dbaddr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
-		tx_map_addr = 0;
-	}
-	/* dma unmap RX*/
-	if(rx_map_addr && channel->direction == CH_DIR_RX) {
-		dma_unmap_resource(&(port0_pdev->dev),
-		rx_map_addr, sizeof(u64),
-		DMA_FROM_DEVICE, 0);
-		rx_map_addr = 0;
-	}
+
+	channel->dma_map_dbaddr = 0;
+
 	return -EPERM;
 }
 EXPORT_SYMBOL_GPL(request_event);
@@ -1174,20 +1158,13 @@ int release_event(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	/* dma unmap TX*/
-	if(tx_map_addr && channel->direction == CH_DIR_TX) {
-		dma_unmap_resource(&(port0_pdev->dev),
-		tx_map_addr, sizeof(u64),
+	/* dma unmap DB address*/
+	dma_unmap_resource(&(port0_pdev->dev),
+		channel->dma_map_dbaddr, sizeof(u64),
 		DMA_FROM_DEVICE, 0);
-		tx_map_addr = 0;
-	}
-	/* dma unmap RX*/
-	if(rx_map_addr && channel->direction == CH_DIR_RX) {
-		dma_unmap_resource(&(port0_pdev->dev),
-		rx_map_addr, sizeof(u64),
-		DMA_FROM_DEVICE, 0);
-		rx_map_addr = 0;
-	}
+
+	channel->dma_map_dbaddr = 0;
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(release_event);

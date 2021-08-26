@@ -122,6 +122,8 @@ struct channel_info {
 	unsigned int ch_flags;
 
 	struct pci_dev* dma_pdev;	/* pdev that should be used for dma allocation */
+	dma_addr_t dma_map_dbaddr;	/* dma mapped address for ntn3 fw to access the db*/
+
 };
 
 struct request_channel_input {
