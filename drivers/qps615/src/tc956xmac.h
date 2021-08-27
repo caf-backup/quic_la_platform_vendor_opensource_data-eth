@@ -34,6 +34,23 @@
  *  05 Jul 2021 : 1. Used Systick handler instead of Driver kernel timer to process transmitted Tx descriptors.
  *                2. XFI interface support and module parameters for selection of Port0 and Port1 interface
  *  VERSION     : 01-00-01
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  20 Jul 2021 : 1. Version update
+ *		2. Default Port1 interface selected as SGMII
+ *  VERSION     : 01-00-03
+ *  22 Jul 2021 : 1. Version update
+ *		2. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
+ *  VERSION     : 01-00-04
+ *  22 Jul 2021 : 1. Dynamic CM3 TAMAP configuration
+ *  VERSION     : 01-00-05
+ *  23 Jul 2021 : 1. Add support for contiguous allocation of memory
+ *  VERSION     : 01-00-06
+ *  29 Jul 2021 : 1. Add support to set MAC Address register
+ *  VERSION     : 01-00-07
+ *  05 Aug 2021 : 1. Store and use Port0 pci_dev for all DMA allocation/mapping for IPA path
+ *		: 2. Register Port0 as only PCIe device, incase its PHY is not found
+ *  VERSION     : 01-00-08
  */
 
 #ifndef __TC956XMAC_H__
@@ -55,7 +72,6 @@
 //#define TC956X_LOAD_FW_HEADER
 #define PF_DRIVER 4
 
-//#define DMA_OFFLOAD_ENABLE
 // #define CONFIG_TC956XMAC_SELFTESTS  /*Enable this macro to test Feature selftest*/
 
 #ifdef TC956X
@@ -81,7 +97,7 @@
 #ifdef TC956X
 
 #define TC956X_RESOURCE_NAME	"tc956x_pci-eth"
-#define DRV_MODULE_VERSION	"V_01-00-01"
+#define DRV_MODULE_VERSION	"V_01-00-08"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 
 #define ATR_AXI4_SLV_BASE		0x0800
@@ -114,7 +130,11 @@
 							TRSL_MASK_OFFSET2)
 
 #define TC956X_ATR_IMPL 1U
-#define TC956X_ATR_SIZE(size) ((size - 1U) << 1U)
+#define TC956X_ATR_SIZE(size)		((size - 1U) << 1U)
+#define TC956X_ATR_SIZE_MASK		GENMASK(6, 1)
+#define TC956x_ATR_SIZE_SHIFT		1
+#define TC956X_SRC_LO_MASK		GENMASK(31, 12)
+#define TC956X_SRC_LO_SHIFT		12
 
 #define TC956X_AXI4_SLV00_ATR_SIZE 36U
 #define TC956X_AXI4_SLV00_SRC_ADDR_LO_VAL  (0x00000000U)
@@ -124,7 +144,7 @@
 #define TC956X_AXI4_SLV00_TRSL_PARAM_VAL   (0x00000000U)
 
 #ifdef DMA_OFFLOAD_ENABLE
-#define TC956X_AXI4_SLV01_ATR_SIZE	   28U	  /* 28 bit DMA Mask */
+#define TC956X_AXI4_SLV01_ATR_SIZE	    28U	  /* 28 bit DMA Mask */
 #define TC956X_AXI4_SLV01_SRC_ADDR_LO_VAL  (0x60000000U)
 #define TC956X_AXI4_SLV01_SRC_ADDR_HI_VAL  (0x00000000U)
 #define TC956X_AXI4_SLV01_TRSL_ADDR_LO_VAL (0x00000000U)
@@ -184,13 +204,30 @@
 #define ENABLE_RGMII_INTERFACE		2
 #define ENABLE_SGMII_INTERFACE		3
 
-#define MTL_FPE_AFSZ_64	0
+#define MTL_FPE_AFSZ_64		0
 #define MTL_FPE_AFSZ_128	1
 #define MTL_FPE_AFSZ_192	2
 #define MTL_FPE_AFSZ_256	3
 #endif
 
+#define MAX_CM3_TAMAP_ENTRIES		3
+#define CM3_TAMAP_ATR_SIZE		28 /* ATR Size = 2 ^ (28 + 1) = 512MB */
+#define CM3_TAMAP_SIZE			(1 << (CM3_TAMAP_ATR_SIZE + 1))
+#define CM3_TAMAP_MASK			(CM3_TAMAP_SIZE - 1)
+#define CM3_TAMAP_SRC_ADDR_START	0x60000000
+
 #define	TC956XMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
+
+#ifdef DMA_OFFLOAD_ENABLE
+struct tc956xmac_cm3_tamap {
+	u32 trsl_addr_hi;
+	u32 trsl_addr_low;
+	u32 src_addr_hi;
+	u32 src_addr_low;	/* Only [31:12] bits will be considered */
+	u32 atr_size;
+	bool valid;
+};
+#endif
 
 struct tc956xmac_resources {
 
@@ -242,6 +279,8 @@ struct tc956xmac_tx_queue {
 #ifdef DMA_OFFLOAD_ENABLE
 	struct sk_buff **tx_offload_skbuff;
 	dma_addr_t *tx_offload_skbuff_dma;
+	dma_addr_t buff_tx_phy;
+	void *buffer_tx_va_addr;
 #endif
 };
 
@@ -274,6 +313,8 @@ struct tc956xmac_rx_queue {
 #ifdef DMA_OFFLOAD_ENABLE
 	struct sk_buff **rx_offload_skbuff;
 	dma_addr_t *rx_offload_skbuff_dma;
+	dma_addr_t buff_rx_phy;
+	void *buffer_rx_va_addr;
 #endif
 };
 
@@ -499,6 +540,7 @@ struct tc956xmac_priv {
 
 #ifdef DMA_OFFLOAD_ENABLE
 	void *client_priv;
+	struct tc956xmac_cm3_tamap cm3_tamap[MAX_CM3_TAMAP_ENTRIES];
 #endif
 };
 

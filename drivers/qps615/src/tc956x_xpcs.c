@@ -31,6 +31,10 @@
  *  05 Jul 2021 : 1. Used Systick handler instead of Driver kernel timer to process transmitted Tx descriptors.
  *                2. XFI interface support and module parameters for selection of Port0 and Port1 interface
  *  VERSION     : 01-00-01
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
+ *  VERSION     : 01-00-04
  */
 
 #include "common.h"
@@ -112,10 +116,11 @@ int tc956x_xpcs_init(struct tc956xmac_priv *priv, void __iomem *xpcsaddr)
 		tc956x_xpcs_write(xpcsaddr, XGMAC_SR_XS_PCS_CTRL2, reg_value);
 
 		reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1);
-		if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+		if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR) {
 			reg_value &= (~XGMAC_USXG_EN); /*Disable USXG_EN*/
-		else
+		} else {
 			reg_value |= XGMAC_USXG_EN; /*set USXG_EN*/
+		}
 
 		tc956x_xpcs_write(xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1, reg_value);
 

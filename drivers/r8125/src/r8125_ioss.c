@@ -40,7 +40,7 @@ enum RTL8125_registers_extra {
 	R8125_RSS_I_TABLE = 0x4700,
 };
 
-struct rtl8125_regs {
+struct __rtl8125_regs {
 	ktime_t begin_ktime;
 	ktime_t end_ktime;
 	u64 duration_ns;
@@ -94,7 +94,7 @@ struct r8125_ioss_device {
 	struct ioss_device *idev;
 	struct rtl8125_private *_tp;
 	struct notifier_block nb;
-	struct rtl8125_regs regs_save;
+	struct __rtl8125_regs regs_save;
 };
 
 static int r8125_notifier_cb(struct notifier_block *nb,
@@ -257,14 +257,17 @@ static int r8125_ioss_request_event(struct ioss_channel *ch)
 	int mod;
 	struct rtl8125_ring *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: daddr=%pad, DATA: %llu",
-		&ch->event.daddr, ch->event.data);
+	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pap, DATA: %llu",
+		&ch->event.paddr, ch->event.data);
+
+	if (ioss_channel_map_event(ch))
+		return -EFAULT;
 
 	rc = rtl8125_request_event(ring, MSIX_event_type,
 					ch->event.daddr, ch->event.data);
 	if (rc) {
 		ioss_dev_err(ch->iface->idev, "Failed to request event");
-		return rc;
+		goto err_req_event;
 	}
 
 	/* Each mod unit is 2048 ns (~2 uS). */
@@ -276,11 +279,17 @@ static int r8125_ioss_request_event(struct ioss_channel *ch)
 	if (rc) {
 		ioss_dev_err(ch->iface->idev,
 			"Failed to set interrupt moderation");
-		rtl8125_release_event(ring);
-		return rc;
+		goto err_intr_mod;
 	}
 
 	return 0;
+
+err_intr_mod:
+	rtl8125_release_event(ring);
+err_req_event:
+	ioss_channel_unmap_event(ch);
+
+	return -EFAULT;
 }
 
 static int r8125_ioss_release_event(struct ioss_channel *ch)
@@ -291,6 +300,7 @@ static int r8125_ioss_release_event(struct ioss_channel *ch)
 			&ch->event.daddr, ch->event.data);
 
 	rtl8125_release_event(ring);
+	ioss_channel_unmap_event(ch);
 
 	return 0;
 }
@@ -403,7 +413,7 @@ static int r8125_save_regs(struct ioss_device *idev,
 {
 	struct r8125_ioss_device *rtldev = idev->private;
 	struct rtl8125_private *tp = rtldev->_tp;
-	struct rtl8125_regs *rtl_regs = &rtldev->regs_save;
+	struct __rtl8125_regs *rtl_regs = &rtldev->regs_save;
 	int i;
 
 	rtl_regs->begin_ktime = ktime_get();

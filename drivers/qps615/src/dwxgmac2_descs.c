@@ -30,6 +30,10 @@
  *
  *  15 Mar 2021 : Base lined
  *  VERSION     : 01-00
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  20 Jul 2021 : 1. Debug prints removed
+ *  VERSION     : 01-00-03
  */
 
 #include "tc956xmac_inc.h"

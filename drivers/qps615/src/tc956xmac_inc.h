@@ -34,6 +34,10 @@
  *  05 Jul 2021 : 1. Used Systick handler instead of Driver kernel timer to process transmitted Tx descriptors.
  *                2. XFI interface support and module parameters for selection of Port0 and Port1 interface
  *  VERSION     : 01-00-01
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
+ *  VERSION     : 01-00-04
  */
 
 #ifndef __TC956XMAC_PLATFORM_DATA
@@ -51,7 +55,7 @@
 //#define TC956X_PCIE_DISABLE_DSP2 /*Enable this macro to disable DSP2 port*/
 
 /* Enable this macro to use Systick timer instead of Kernel timers
- * for handling Tx completion periodically 
+ * for handling Tx completion periodically
  */
 #define TX_COMPLETION_WITHOUT_TIMERS
 #define TC956X_SW_MSI /*Enable this macro to process SW MSI when CM3 Systick Handler sends SW MSI*/

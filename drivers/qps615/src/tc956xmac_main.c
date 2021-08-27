@@ -34,6 +34,17 @@
  *  05 Jul 2021 : 1. Used Systick handler instead of Driver kernel timer to process transmitted Tx descriptors.
  *                2. XFI interface support and module parameters for selection of Port0 and Port1 interface
  *  VERSION     : 01-00-01
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  20 Jul 2021 : 1. Flash MDIO ioctl supported
+ *		  2. Rxp statistics function removed
+ *  VERSION     : 01-00-03
+ *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
+ *  VERSION     : 01-00-04
+ *  22 Jul 2021 : 1. Dynamic CM3 TAMAP configuration
+ *  VERSION     : 01-00-05
+ *  05 Aug 2021 : 1. Register Port0 as only PCIe device, incase its PHY is not found
+ *  VERSION     : 01-00-08
  */
 
 #include <linux/clk.h>
@@ -182,98 +193,6 @@ static const struct config_parameter_list config_param_list[] = {
 static uint16_t mdio_bus_id;
 #define CONFIG_PARAM_NUM ARRAY_SIZE(config_param_list)
 int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *);
-
-#ifdef DUMP_REGISTER
-void dump_registers(struct tc956xmac_priv *priv)
-{
-	u32 i, j;
-
-	/* Register dump */
-	printk("CNFREG dump\n");
-
-	for (i = 0; i <= 0x1800; i = i+4)
-		printk("CNFREG 0x4000_%.4x = 0x%x\n", i, readl(priv->ioaddr + i));
-
-	printk("--------------------------------------------------------\n");
-	printk("PMATOP register dump\n");
-
-
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x441b8, readl(priv->ioaddr + 0x441b8));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x45888, readl(priv->ioaddr + 0x45888));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x45890, readl(priv->ioaddr + 0x45890));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x45898, readl(priv->ioaddr + 0x45898));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x458a0, readl(priv->ioaddr + 0x458a0));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x458a8, readl(priv->ioaddr + 0x458a8));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x45080, readl(priv->ioaddr + 0x45080));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x45090, readl(priv->ioaddr + 0x45090));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x45094, readl(priv->ioaddr + 0x45094));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450a4, readl(priv->ioaddr + 0x450a4));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450a8, readl(priv->ioaddr + 0x450a8));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450b8, readl(priv->ioaddr + 0x450b8));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450bc, readl(priv->ioaddr + 0x450bc));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450cc, readl(priv->ioaddr + 0x450cc));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450d0, readl(priv->ioaddr + 0x450d0));
-	printk("PMATOP Reg 0x%x = 0x%x\n", 0x450e0, readl(priv->ioaddr + 0x450e0));
-
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_GL_PM_CFG0, readl(priv->pmaaddr + XGMAC_PMA_GL_PM_CFG0));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_CFG_0_1_R0, readl(priv->pmaaddr + XGMAC_PMA_CFG_0_1_R0));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_CFG_0_1_R1, readl(priv->pmaaddr + XGMAC_PMA_CFG_0_1_R1));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_CFG_0_1_R2, readl(priv->pmaaddr + XGMAC_PMA_CFG_0_1_R2));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_CFG_0_1_R3, readl(priv->pmaaddr + XGMAC_PMA_CFG_0_1_R3));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_CFG_0_1_R4, readl(priv->pmaaddr + XGMAC_PMA_CFG_0_1_R4));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_EN_R0, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_EN_R0));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_TERM_EN_R0, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_TERM_EN_R0));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_R_EN_R1, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_R_EN_R1));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_TERM_EN_R1, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_TERM_EN_R1));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_R_EN_R2, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_R_EN_R2));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_TERM_EN_R2, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_TERM_EN_R2));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_R_EN_R3, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_R_EN_R3));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_TERM_EN_R3, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_TERM_EN_R3));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_R_EN_R4, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_R_EN_R4));
-	printk("PMATOP Reg 0x%x = 0x%x\n", XGMAC_PMA_HWT_REFCK_TERM_EN_R4, readl(priv->pmaaddr + XGMAC_PMA_HWT_REFCK_TERM_EN_R4));
-
-	printk("--------------------------------------------------------\n");
-	printk("XPCS register dump\n");
-
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_SR_MII_CTRL, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_MII_CTRL));
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_VR_MII_AN_CTRL, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_MII_AN_CTRL));
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_VR_MII_DIG_CTRL1, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_MII_DIG_CTRL1));
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_SR_XS_PCS_CTRL2, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_XS_PCS_CTRL2));
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_VR_XS_PCS_DIG_CTRL1, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1));
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_VR_XS_PCS_KR_CTRL, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL));
-	printk("XPCS Reg 0x%x = 0x%x\n", XGMAC_VR_MII_AN_INTR_STS, tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_MII_AN_INTR_STS));
-
-	printk("--------------------------------------------------------\n");
-
-	printk("XGMAC-MAC register dump\n");
-
-	for (i = 0; i <= 0x810; i = i+4)
-		printk("XGMAC MAC Reg 0x400%.5x = 0x%x\n", MAC_OFFSET + i, readl(priv->ioaddr + MAC_OFFSET + i));
-
-	printk("--------------------------------------------------------\n");
-
-	printk("XGMAC-MTL register dump\n");
-	for (i = 0x1000; i <= 0x10B4; i = i+4)
-		printk("XGMAC MTL Reg 0x400%.5x = 0x%x\n", MAC_OFFSET + i, readl(priv->ioaddr + MAC_OFFSET + i));
-
-	for (i = 0x1100; i <= 0x1174; i = i+4) {
-		for (j = 0; j < 2; j++)
-		printk("XGMAC MTL Reg 0x400%.5x = 0x%x\n", MAC_OFFSET + i + (j*0x80), readl(priv->ioaddr + MAC_OFFSET + i + (j*0x80) ));
-	}
-
-	printk("--------------------------------------------------------\n");
-
-	printk("XGMAC-DMA register dump\n");
-	for (i = 0x3000; i <= 0x3084; i = i+4)
-		printk("XGMAC DMA Reg 0x400%.5x = 0x%x\n", MAC_OFFSET + i, readl(priv->ioaddr + MAC_OFFSET + i));
-
-	for (i = 0x3100; i <= 0x317c; i = i+4) {
-		for (j = 0; j < 2; j++)
-		printk("XGMAC DMA Reg 0x400%.5x = 0x%x\n", MAC_OFFSET + i + (j*0x80), readl(priv->ioaddr + MAC_OFFSET + i + (j*0x80) ));
-	}
-	printk("--------------------------------------------------------\n");
-}
-#endif
 
 /**
  * tc956xmac_verify_args - verify the driver parameters.
@@ -1548,7 +1467,6 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 				default:
 					return;
 				}
-
 				tc956x_xpcs_write(priv->xpcsaddr, XGMAC_SR_MII_CTRL, val);
 
 				/* USRA_RST set to 1 */
@@ -1570,9 +1488,8 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 			}
 			/* Invoke this only during speed change */
 			if ((state->speed != SPEED_UNKNOWN) || (state->speed != 0)) {
-				if (state->speed != priv->speed) {
+				if (state->speed != priv->speed)
 					tc956xmac_speed_change_init_mac(priv, state);
-				}
 			}
 			val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_MII_CTRL);
 			val &= ~XGMAC_SR_MII_CTRL_SPEED; /* Mask speed ss13, ss6, ss5 */
@@ -1605,23 +1522,23 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 			config_done = true;
 		}
 	} else if (state->interface == PHY_INTERFACE_MODE_RGMII) {
-			switch (state->speed) {
-			case SPEED_1000:
-				ctrl |= priv->hw->link.speed1000;
-				emac_ctrl |= NEMACCTL_SP_SEL_RGMII_1000M;
-				break;
-			case SPEED_100:
-				ctrl |= priv->hw->link.speed100;
-				emac_ctrl |= NEMACCTL_SP_SEL_RGMII_100M;
-				break;
-			case SPEED_10:
-				ctrl |= priv->hw->link.speed10;
-				emac_ctrl |= NEMACCTL_SP_SEL_RGMII_10M;
-				break;
-			default:
-				return;
-			}
-			config_done = true;
+		switch (state->speed) {
+		case SPEED_1000:
+			ctrl |= priv->hw->link.speed1000;
+			emac_ctrl |= NEMACCTL_SP_SEL_RGMII_1000M;
+			break;
+		case SPEED_100:
+			ctrl |= priv->hw->link.speed100;
+			emac_ctrl |= NEMACCTL_SP_SEL_RGMII_100M;
+			break;
+		case SPEED_10:
+			ctrl |= priv->hw->link.speed10;
+			emac_ctrl |= NEMACCTL_SP_SEL_RGMII_10M;
+			break;
+		default:
+			return;
+		}
+		config_done = true;
 	} else {
 		switch (state->speed) {
 		case SPEED_2500:
@@ -3075,6 +2992,7 @@ static int tc956xmac_napi_check(struct tc956xmac_priv *priv, u32 chan)
 #ifdef TX_COMPLETION_WITHOUT_TIMERS
 		writel(0, priv->tc956x_SRAM_pci_base_addr
 				+ TX_TIMER_SRAM_OFFSET(priv->port_num));
+
 #endif
 		if (napi_schedule_prep(&ch->tx_napi)) {
 			spin_lock_irqsave(&ch->lock, flags);
@@ -4033,6 +3951,7 @@ static int tc956xmac_release(struct net_device *dev)
 #ifdef TX_COMPLETION_WITHOUT_TIMERS
 		writel(0, priv->tc956x_SRAM_pci_base_addr
 				+ TX_TIMER_SRAM_OFFSET(priv->port_num));
+
 #endif
 	if (priv->eee_enabled)
 		del_timer_sync(&priv->eee_ctrl_timer);
@@ -6909,7 +6828,7 @@ static int tc956xmac_mode1_usp_lane_change_4_to_1(struct tc956xmac_priv *priv, v
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_USP_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x4 --> x1) to PLDA PCIe Switch USP
+	 * direct Link Width Change (x4 --> x1) to PCIe Switch USP
 	 */
 	writel(USP_LINK_WIDTH_CHANGE_4_TO_1, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -6991,7 +6910,7 @@ static int tc956xmac_mode1_usp_lane_change_4_to_2(struct tc956xmac_priv *priv, v
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_USP_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x4 --> x2) to PLDA PCIe Switch USP
+	 * direct Link Width Change (x4 --> x2) to PCIe Switch USP
 	 */
 	writel(USP_LINK_WIDTH_CHANGE_4_TO_2, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -7156,7 +7075,7 @@ static int tc956xmac_mode1_usp_lane_change_1_2_to_4(struct tc956xmac_priv *priv,
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_USP_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x1/x2 --> x4) to PLDA PCIe Switch USP
+	 * direct Link Width Change (x1/x2 --> x4) to PCIe Switch USP
 	 */
 	writel(USP_LINK_WIDTH_CHANGE_1_2_TO_4, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -7175,7 +7094,7 @@ static int tc956xmac_mode2_usp_lane_change_2_to_1(struct tc956xmac_priv *priv, v
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_USP_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x2 --> x1) to PLDA PCIe Switch USP
+	 * direct Link Width Change (x2 --> x1) to PCIe Switch USP
 	 */
 	writel(USP_LINK_WIDTH_CHANGE_2_TO_1, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -7286,7 +7205,7 @@ static int tc956xmac_mode2_usp_lane_change_1_to_2(struct tc956xmac_priv *priv, v
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_USP_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x1 --> x2) to PLDA PCIe Switch USP
+	 * direct Link Width Change (x1 --> x2) to PCIe Switch USP
 	 */
 	writel(USP_LINK_WIDTH_CHANGE_1_TO_2, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -7305,7 +7224,7 @@ static int tc956xmac_mode2_dsp1_lane_change_2_to_1(struct tc956xmac_priv *priv, 
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_DSP1_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x2 --> x1) to PLDA PCIe Switch DSP1
+	 * direct Link Width Change (x2 --> x1) to PCIe Switch DSP1
 	 */
 	writel(DSP1_LINK_WIDTH_CHANGE_2_TO_1, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -7416,7 +7335,7 @@ static int tc956xmac_mode2_dsp1_lane_change_1_to_2(struct tc956xmac_priv *priv, 
 	writel(0, ioaddr + TC956X_GLUE_RSVD_RW0);
 
 	/* Set SW_DSP1_TL_PM_BWCHANGE Register in Glue Logic Register rsvd_rw0 to
-	 * direct Link Width Change (x1 --> x2) to PLDA PCIe Switch DSP1
+	 * direct Link Width Change (x1 --> x2) to PCIe Switch DSP1
 	 */
 	writel(DSP1_LINK_WIDTH_CHANGE_1_TO_2, ioaddr + TC956X_GLUE_RSVD_RW0);
 
@@ -8779,6 +8698,48 @@ static int tc956xmac_extension_ioctl(struct tc956xmac_priv *priv,
 	return 0;
 }
 
+static int tc956xmac_phy_fw_flash_mdio_ioctl(struct net_device *ndev,
+					     struct ifreq *ifr, int cmd)
+{
+	struct mii_ioctl_data *mii = if_mii(ifr);
+	struct tc956xmac_priv *priv = netdev_priv(ndev);
+
+	int ret = -EINVAL;
+	int prtad, devad;
+
+	if (mdio_phy_id_is_c45(mii->phy_id)) {
+		prtad = mdio_phy_id_prtad(mii->phy_id);
+		devad = mdio_phy_id_devad(mii->phy_id);
+		devad = MII_ADDR_C45 | devad << 16 | mii->reg_num;
+	} else {
+		prtad = mii->phy_id;
+		devad = mii->reg_num;
+	}
+
+	switch (cmd) {
+	case SIOCGMIIPHY:
+		mii->phy_id = 0;
+		/* fall through */
+
+	case SIOCGMIIREG:
+		ret = priv->mii->read(priv->mii, prtad, devad);
+		if (ret >= 0) {
+			mii->val_out = ret;
+			ret = 0;
+		}
+		break;
+
+	case SIOCSMIIREG:
+		ret = priv->mii->write(priv->mii, prtad, devad,
+					mii->val_in);
+		break;
+
+	default:
+		break;
+	}
+
+	return ret;
+}
 
 /**
  *  tc956xmac_ioctl - Entry point for the Ioctl
@@ -8796,7 +8757,7 @@ static int tc956xmac_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	struct mii_ioctl_data *data = if_mii(rq);
 
 	if (!netif_running(dev))
-		return -EINVAL;
+		return tc956xmac_phy_fw_flash_mdio_ioctl(dev, rq, cmd);
 
 	switch (cmd) {
 	case SIOCGMIIPHY:
@@ -9625,6 +9586,7 @@ static void parse_config_file(void)
 		KPRINT_INFO("Using Default MAC Address\n");
 		return;
 	} else {
+
 		cdata = data;
 		/* Parse the file */
 		for (i = 0; i < CONFIG_PARAM_NUM; i++) {
@@ -9729,6 +9691,7 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->port_interface = res->port_interface;
 #ifdef DMA_OFFLOAD_ENABLE
 	priv->client_priv = NULL;
+	memset(priv->cm3_tamap, 0, sizeof(struct tc956xmac_cm3_tamap) * MAX_CM3_TAMAP_ENTRIES);
 #endif
 
 #ifdef TC956X
@@ -10041,10 +10004,16 @@ int tc956xmac_dvr_probe(struct device *device,
 #endif
 			ret = tc956xmac_mdio_register(ndev);
 			if (ret < 0) {
-				dev_err(priv->device,
-				"%s: MDIO bus (id: %d) registration failed",
-				__func__, priv->plat->bus_id);
-				goto error_mdio_register;
+				/* tc956xmac_mdio_register() will return -ENODEV when No PHY is found */
+				if (ret == -ENODEV) {
+					dev_info(priv->device, "Port%d will not be registered as ethernet controller", priv->port_num);
+					goto error_mdio_register;
+				} else {
+					dev_err(priv->device,
+					"%s: MDIO bus (id: %d) registration failed",
+					__func__, priv->plat->bus_id);
+					goto error_mdio_register;
+				}
 		}
 	}
 #ifdef TC956X_WITHOUT_MDIO

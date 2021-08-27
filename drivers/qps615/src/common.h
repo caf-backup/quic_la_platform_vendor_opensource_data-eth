@@ -34,7 +34,15 @@
  *  05 Jul 2021 : 1. Used Systick handler instead of Driver kernel timer to process transmitted Tx descriptors.
  *                2. XFI interface support and module parameters for selection of Port0 and Port1 interface
  *  VERSION     : 01-00-01
- */  
+ *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
+ *  VERSION     : 01-00-02
+ *  20 Jul 2021 : CONFIG_DEBUG_FS_TC956X removed and renamed as CONFIG_DEBUG_FS
+ *  VERSION     : 01-00-03
+ *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
+ *  VERSION     : 01-00-04
+ *  23 Jul 2021 : 1. Enable DMA IPA OFFLOAD and FRP by default
+ *  VERSION     : 01-00-06
+ */
 
 #ifndef __COMMON_H__
 #define __COMMON_H__
@@ -57,6 +65,9 @@
 #include "tc956x_pma.h"
 #endif
 
+/* Enable DMA IPA offload */
+#define DMA_OFFLOAD_ENABLE
+
 /* Synopsys Core versions */
 #define DWMAC_CORE_3_40		0x34
 #define DWMAC_CORE_3_50		0x35
@@ -68,7 +79,7 @@
 #define DWXGMAC_CORE_3_01	0x30
 
 //#define DISABLE_EMAC_PORT1
-//#define DUMP_REGISTER
+
 /* Note: Multiple macro definitions for TC956X_PCIE_LOGSTAT.
  * Please also define/undefine same macro in tc956xmac_ioctl.h, if changing in this file
  */
@@ -465,7 +476,7 @@ enum packets_types {
 //#define TC956X_MSI_GEN_SW_AGENT /*Macro to enable and handle SW MSI interrupt*/
 //#define TC956X_TEST_RXCH1_FRP_DISABLED
 //#define TC956X_PKT_DUP
-//#define TC956X_FRP_ENABLE
+#define TC956X_FRP_ENABLE
 
 
 #ifdef TC956X_DBG_PTP
@@ -911,6 +922,7 @@ enum packets_types {
 #define MSI_INT_TX_CH0		3
 #define MSI_INT_RX_CH0		11
 #define MSI_INT_EXT_PHY		20
+
 #ifdef TC956X_SW_MSI
 #define MSI_INT_SW_MSI		24
 #endif
