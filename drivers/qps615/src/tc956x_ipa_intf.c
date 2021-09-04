@@ -39,6 +39,10 @@
  *  VERSION     : 01-00-05
  *  23 Jul 2021 : 1. Add support for contiguous allocation of memory
  *  VERSION     : 01-00-06
+ *  29 Jul 2021 : 1. Add support to set MAC Address register
+ *  VERSION     : 01-00-07
+ *  05 Aug 2021 : Store and use Port0 pci_dev for all DMA allocation/mapping for IPA path
+ *  VERSION     : 01-00-08
  */
 
 #include <linux/dma-mapping.h>
@@ -68,6 +72,14 @@
 #define IPA_MAX_BUFFER_SIZE (9*1024) /* 9KBytes */
 #define IPA_MAX_DESC_CNT    512
 #define MAX_WDT		0xFF
+
+#define MAC_ADDR_INDEX 1
+#define MAC_ADDR_AE 1
+#define MAC_ADDR_MBC 0x3F
+#define MAC_ADDR_DCS 0x1
+static u8 mac_addr_default[6] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+
+extern struct pci_dev* port0_pdev;
 
 static DEFINE_SPINLOCK(cm3_tamap_lock);
 
@@ -174,17 +186,20 @@ static void free_ipa_tx_resources(struct net_device *ndev, struct channel_info *
 	u32 i;
 
 	if (channel->ch_flags == TC956X_CONTIG_BUFS) {
-		dma_free_coherent(priv->device,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		dma_free_coherent(&(port0_pdev->dev),
 				  channel->desc_size * channel->desc_cnt,
 				  channel->desc_addr.desc_virt_addrs_base,
 				  tx_q->dma_tx_phy);
-		dma_free_coherent(priv->device,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		dma_free_coherent(&(port0_pdev->dev),
 				  channel->buf_size * channel->desc_cnt,
 				  channel->buff_pool_addr.buff_pool_va_addrs_base[0],
 				  tx_q->buff_tx_phy);
 	} else {
 		for (i = 0; i < channel->desc_cnt; i++) {
-			dma_unmap_single(priv->device,
+			/* Always use Port0 pdev for allocating/freeing DMA memory */
+			dma_unmap_single(&(port0_pdev->dev),
 					 tx_q->tx_offload_skbuff_dma[i],
 					 channel->buf_size, DMA_TO_DEVICE);
 
@@ -194,7 +209,8 @@ static void free_ipa_tx_resources(struct net_device *ndev, struct channel_info *
 			channel->buff_pool_addr.buff_pool_dma_addrs_base[i] = 0;
 			channel->buff_pool_addr.buff_pool_va_addrs_base[i] = NULL;
 		}
-		dma_free_coherent(priv->device, channel->desc_size * channel->desc_cnt,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		dma_free_coherent(&(port0_pdev->dev), channel->desc_size * channel->desc_cnt,
 				  channel->desc_addr.desc_virt_addrs_base,
 				  tx_q->dma_tx_phy);
 		kfree(tx_q->tx_offload_skbuff);
@@ -209,17 +225,20 @@ static void free_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 	u32 i;
 
 	if (channel->ch_flags == TC956X_CONTIG_BUFS) {
-		dma_free_coherent(priv->device,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		dma_free_coherent(&(port0_pdev->dev),
 				  channel->desc_size * channel->desc_cnt,
 				  channel->desc_addr.desc_virt_addrs_base,
 				  rx_q->dma_rx_phy);
-		dma_free_coherent(priv->device,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		dma_free_coherent(&(port0_pdev->dev),
 				  channel->buf_size * channel->desc_cnt,
 				  channel->buff_pool_addr.buff_pool_va_addrs_base[0],
 				  rx_q->buff_rx_phy);
 	} else {
 		for (i = 0; i < channel->desc_cnt; i++) {
-			dma_unmap_single(priv->device,
+			/* Always use Port0 pdev for allocating/freeing DMA memory */
+			dma_unmap_single(&(port0_pdev->dev),
 					 rx_q->rx_offload_skbuff_dma[i],
 					 channel->buf_size, DMA_FROM_DEVICE);
 
@@ -229,7 +248,8 @@ static void free_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 			channel->buff_pool_addr.buff_pool_dma_addrs_base[i] = 0;
 			channel->buff_pool_addr.buff_pool_va_addrs_base[i] = NULL;
 		}
-		dma_free_coherent(priv->device, channel->desc_size * channel->desc_cnt,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		dma_free_coherent(&(port0_pdev->dev), channel->desc_size * channel->desc_cnt,
 				  channel->desc_addr.desc_virt_addrs_base,
 				  rx_q->dma_rx_phy);
 		kfree(rx_q->rx_offload_skbuff);
@@ -306,7 +326,8 @@ static int alloc_ipa_tx_resources(struct net_device *ndev, struct channel_info *
 
 	tx_q = &priv->tx_queue[channel->channel_num];
 
-	channel->desc_addr.desc_virt_addrs_base = dma_alloc_coherent(priv->device,
+	/* Always use Port0 pdev for allocating/freeing DMA memory */
+	channel->desc_addr.desc_virt_addrs_base = dma_alloc_coherent(&(port0_pdev->dev),
 								channel->desc_size * channel->desc_cnt,
 								&tx_q->dma_tx_phy, flags);
 
@@ -319,7 +340,8 @@ static int alloc_ipa_tx_resources(struct net_device *ndev, struct channel_info *
 	channel->desc_addr.desc_dma_addrs_base = tx_q->dma_tx_phy;
 
 	if (channel->ch_flags == TC956X_CONTIG_BUFS) {
-		channel->buff_pool_addr.buff_pool_va_addrs_base[0] = dma_alloc_coherent(priv->device, channel->buf_size * channel->desc_cnt,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		channel->buff_pool_addr.buff_pool_va_addrs_base[0] = dma_alloc_coherent(&(port0_pdev->dev), channel->buf_size * channel->desc_cnt,
 								&tx_q->buff_tx_phy, flags);
 		if (!channel->buff_pool_addr.buff_pool_va_addrs_base[0]) {
 			netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
@@ -354,10 +376,12 @@ static int alloc_ipa_tx_resources(struct net_device *ndev, struct channel_info *
 		}
 
 		tx_q->tx_offload_skbuff[i] = skb;
-		tx_q->tx_offload_skbuff_dma[i] = dma_map_single(priv->device, skb->data,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		tx_q->tx_offload_skbuff_dma[i] = dma_map_single(&(port0_pdev->dev), skb->data,
 							channel->buf_size, DMA_TO_DEVICE);
 
-		if (dma_mapping_error(priv->device, tx_q->tx_offload_skbuff_dma[i])) {
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		if (dma_mapping_error(&(port0_pdev->dev), tx_q->tx_offload_skbuff_dma[i])) {
 			netdev_err(priv->dev, "%s: DMA mapping error\n", __func__);
 			dev_kfree_skb_any(skb);
 			goto err_mem;
@@ -390,7 +414,8 @@ static int alloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 
 	rx_q = &priv->rx_queue[channel->channel_num];
 
-	channel->desc_addr.desc_virt_addrs_base = dma_alloc_coherent(priv->device, channel->desc_size * channel->desc_cnt,
+	/* Always use Port0 pdev for allocating/freeing DMA memory */
+	channel->desc_addr.desc_virt_addrs_base = dma_alloc_coherent(&(port0_pdev->dev), channel->desc_size * channel->desc_cnt,
 								&rx_q->dma_rx_phy, flags);
 
 	if (!channel->desc_addr.desc_virt_addrs_base) {
@@ -402,7 +427,8 @@ static int alloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 	channel->desc_addr.desc_dma_addrs_base = rx_q->dma_rx_phy;
 
 	if (channel->ch_flags == TC956X_CONTIG_BUFS) {
-		channel->buff_pool_addr.buff_pool_va_addrs_base[0] = dma_alloc_coherent(priv->device, channel->buf_size * channel->desc_cnt,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		channel->buff_pool_addr.buff_pool_va_addrs_base[0] = dma_alloc_coherent(&(port0_pdev->dev), channel->buf_size * channel->desc_cnt,
 								&rx_q->buff_rx_phy, flags);
 		if (!channel->buff_pool_addr.buff_pool_va_addrs_base[0]) {
 			netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
@@ -438,10 +464,12 @@ static int alloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 		}
 
 		rx_q->rx_offload_skbuff[i] = skb;
-		rx_q->rx_offload_skbuff_dma[i] = dma_map_single(priv->device, skb->data,
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		rx_q->rx_offload_skbuff_dma[i] = dma_map_single(&(port0_pdev->dev), skb->data,
 							channel->buf_size, DMA_FROM_DEVICE);
 
-		if (dma_mapping_error(priv->device, rx_q->rx_offload_skbuff_dma[i])) {
+		/* Always use Port0 pdev for allocating/freeing DMA memory */
+		if (dma_mapping_error(&(port0_pdev->dev), rx_q->rx_offload_skbuff_dma[i])) {
 			netdev_err(priv->dev, "%s: DMA mapping error\n", __func__);
 			dev_kfree_skb_any(skb);
 			goto err_mem;
@@ -638,6 +666,9 @@ struct channel_info* request_channel(struct request_channel_input *channel_input
 		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
 		goto err_buff_dma_mem_alloc;
 	}
+
+	/* Always point dma_pdev to Port0 and use this is to allocate/map DMA memory */
+	channel->dma_pdev = port0_pdev;
 
 	if (channel->mem_ops) {
 		/*if mem_ops is a valid, memory resrouces will be allocated by IPA */
@@ -1471,6 +1502,7 @@ EXPORT_SYMBOL_GPL(clear_rx_filter);
 int start_channel(struct net_device *ndev, struct channel_info *channel)
 {
 	struct tc956xmac_priv *priv;
+	struct mac_addr_list mac_addr;
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1507,6 +1539,12 @@ int start_channel(struct net_device *ndev, struct channel_info *channel)
 		netdev_dbg(priv->dev, "DMA Tx process started in channel = %d\n", channel->channel_num);
 		tc956xmac_start_tx(priv, priv->ioaddr, channel->channel_num);
 	} else if (channel->direction == CH_DIR_RX) {
+		mac_addr.ae = MAC_ADDR_AE;
+		mac_addr.mbc = MAC_ADDR_MBC;
+		mac_addr.dcs = MAC_ADDR_DCS;
+		memcpy(&mac_addr.addr[0], &mac_addr_default[0], sizeof(mac_addr_default));
+		set_mac_addr(ndev, &mac_addr, MAC_ADDR_INDEX);
+
 		netdev_dbg(priv->dev, "DMA Rx process started in channel = %d\n", channel->channel_num);
 		tc956xmac_start_rx(priv, priv->ioaddr, channel->channel_num);
 	} else {
@@ -1585,5 +1623,60 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 }
 EXPORT_SYMBOL_GPL(stop_channel);
 
+/*!
+ * \brief Configure MAC registers at a particular index in the MAC Address list
+ *
+ * \param[in] ndev : TC956x netdev data structure
+ * \param[in] mac_addr : Pointer to structure containing mac_addr_list that needs to updated
+ *		     in MAC_Address_High and MAC_Address_Low registers
+ * \param[in] index : Index in the MAC Address Register list
+ *
+ * \return : Return 0 on success, -ve value on error
+ *	     -EPERM if index 0 used
+ *	     -ENODEV if ndev is NULL, tc956xmac_priv extracted from ndev is NULL
+ *	     -EINVAL if mac_addr NULL
+ *
+ * \remarks : Do not use the API to set register at index 0.
+ *	      There is possibilty of kernel network subsytem overwriting these registers
+ *	      when " tc956xmac_set_rx_mode" is invoked via "ndo_set_rx_mode" callback.
+ */
+int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 index)
+{
+	struct tc956xmac_priv *priv;
+	u32 data;
 
+	if (!ndev) {
+		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
+		return -ENODEV;
+	}
+
+	priv = netdev_priv(ndev);
+	if (!priv) {
+		pr_err("%s: ERROR: Invalid private data pointer\n", __func__);
+		return -ENODEV;
+	}
+
+	if (!mac_addr) {
+		netdev_err(priv->dev,
+				"%s: ERROR: Invalid mac addr list structure\n", __func__);
+		return -EINVAL;
+	}
+
+	if (index == 0) {
+		netdev_err(priv->dev,
+				"%s: ERROR: Do not use index 0\n", __func__);
+		return -EPERM;
+	}
+
+	data = (mac_addr->addr[5] << 8) | (mac_addr->addr[4]) |
+		(mac_addr->ae << XGMAC_AE_SHIFT) | (mac_addr->mbc << XGMAC_MBC_SHIFT);
+	writel(data, priv->ioaddr + XGMAC_ADDRx_HIGH(index));
+
+	data = (mac_addr->addr[3] << 24) | (mac_addr->addr[2] << 16) |
+		(mac_addr->addr[1] << 8) | mac_addr->addr[0];
+	writel(data, priv->ioaddr + XGMAC_ADDRx_LOW(index));
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(set_mac_addr);
 

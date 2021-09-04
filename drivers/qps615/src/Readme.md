@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 23 Jul 2021
+Release Date: 24 Aug 2021
 
-Release Version: V_01-00-06 : Limited-tested version
+Release Version: V_01-00-10 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -16,6 +16,15 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
     #make clean
 
     #make
+
+    To compile driver with load firmware header (fw.h) use the below command
+    #make TC956X_LOAD_FW_HEADER=1 
+
+    In order to compile the Driver to include the code for applying Gen3 setting, execute Make with below argument
+    #make TC956X_PCIE_GEN3_SETTING=1
+
+    Please note, incase both fw.h and Gen3 settings are needed, then both arugments need to be specified.
+
 3.	Load phylink module
 
 	#modprobe phylink
@@ -26,9 +35,71 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 	In the module parameter tc956x_speed, X is the desired PCIe Gen speed. X can be 3 or 2 or 1.
 	Passing module parameter (tc956x_speed=X) is optional.
 	If module parameter is not passed, by default Gen3 speed will be selected by the driver.
-4.  Remove the driver
+5.  Remove the driver
 
 	#rmmod tc956x_pcie_eth
+
+# Note:
+
+1. Use below commands to advertise with Autonegotiation ON for speeds 10Gbps, 5Gbps, 2.5Gbps, 1Gbps, 100Mbps and 10Mbps as ethtool speed command does not support.
+
+    ethtool -s <interface> advertise 0x1000 autoneg on --> changes the advertisement to 10Gbps
+    
+    ethtool -s <interface> advertise 0x1000000000000 autoneg on --> changes the advertisement to 5Gbps
+
+    ethtool -s <interface> advertise 0x800000000000 autoneg on --> changes the advertisement to 2.5Gbps
+
+    ethtool -s <interface> advertise 0x020 autoneg on --> changes the advertisement to 1Gbps
+
+    ethtool -s <interface> advertise 0x008 autoneg on --> changes the advertisement to 100Mbps
+
+    ethtool -s <interface> advertise 0x002 autoneg on --> changes the advertisement 10Mbps
+
+2. Use the below command to insert the kernel module with specific modes for interfaces:
+	
+    #insmod tc956x_pcie_eth.ko tc956x_port0_interface=x tc956x_port1_interface=y
+
+       argument info:
+	     tc956x_port0_interface: For PORT0 interface mode setting
+	     tc956x_port1_interface: For PORT1 interface mode setting
+	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII]
+	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default)]
+  
+    If invalid and unsupported modes are passed as kernel module parameter, the default interface mode will be selected.
+
+3. Regarding the performance, use the below command to increase the dynamic byte queue limit
+
+    $echo "900000" > /sys/devices/pci0000\:00/0000\:00\:01.0/0000\:01\:00.0/0000\:02\:03.0/0000\:05\:00.0/net/enp5s0f0/queues/tx-0/byte_queue_limits/limit_min
+
+    900000 is the random value chosen. It needs to adjust this value on their system and check
+    "0000\:00/0000\:00\:01.0/0000\:01\:00.0/0000\:02\:03.0/0000\:05\:00.0/" value can be obtained from the "lspci -t" command
+
+4. The debug counters to check the interrupt count is available.
+
+    "#ethtool -S <interface>" needs to be executed and sample output is as below
+  
+       total_interrupts: 120109
+       lpi_intr_n: 0
+       pmt_intr_n: 0
+       event_intr_n: 0
+       tx_intr_n: 120000
+       rx_intr_n: 51
+       xpcs_intr_n: 0
+       phy_intr_n: 46
+       sw_msi_n: 12
+
+   tx_intr_n = No of. Tx interrupts originating from eMAC
+   sw_msi_n = No. of SW MSIs triggered by Systick Handler as part of optimized Tx Timer based on Systick approach.
+   So total number of interrupts for Tx = tx_intr_n + sw_msi_n
+   Please note that whenever Rx interruts are generated, the Host ISR will process the Tx completed descriptors too.
+
+5. With V_01-00-07, when IPA API start_channel() is invoked for Rx direction, MAC_Address1_High is updated with 0xBF000000. 
+   This register setting is almost similar to promiscuous mode. So please install appropriate FRP instructions.
+
+6. From V_01-00-08 onwards, Port0 ethernet interface will not be created only if there is no ethernet PHY attached to it
+
+7. Enable TC956X_PHY_INTERRUPT_MODE_EMAC0 macro for supporting PORT0 Interrupt mode. Disable the macro if the phy driver supports only polling mode.
+   Enable TC956X_PHY_INTERRUPT_MODE_EMAC1 macro for supporting PORT1 Interrupt mode. Disable the macro if the phy driver supports only polling mode.
 
 # Release Versions:
 
@@ -68,55 +139,22 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 1. Add support for contiguous allocation of memory
 
-# Note:
+## TC956X_Host_Driver_20210729_V_01-00-07:
 
-1. Use below commands to advertise with Autonegotiation ON for speeds 10Gbps, 5Gbps, 2.5Gbps, 1Gbps, 100Mbps and 10Mbps as ethtool speed command does not support.
+1. Add support to set MAC Address register
 
-    ethtool -s <interface> advertise 0x1000 autoneg on --> changes the advertisement to 10Gbps
-    
-    ethtool -s <interface> advertise 0x1000000000000 autoneg on --> changes the advertisement to 5Gbps
+## TC956X_Host_Driver_20210806_V_01-00-08:
 
-    ethtool -s <interface> advertise 0x800000000000 autoneg on --> changes the advertisement to 2.5Gbps
+1. Store and use Port0 pci_dev for all DMA allocation/mapping for IPA path
+2. Register Port0 as only PCIe device, in case its PHY is not found
 
-    ethtool -s <interface> advertise 0x020 autoneg on --> changes the advertisement to 1Gbps
+## TC956X_Host_Driver_20210816_V_01-00-09:
 
-    ethtool -s <interface> advertise 0x008 autoneg on --> changes the advertisement to 100Mbps
+1. PHY interrupt mode supported through .config_intr and .ack_interrupt API
 
-    ethtool -s <interface> advertise 0x002 autoneg on --> changes the advertisement 10Mbps
+## TC956X_Host_Driver_20210824_V_01-00-10:
 
-2. Use the below command to insert the kernel module with specific modes for interfaces:
-	
-    #insmod tc956x_pcie_eth.ko tc956x_port0_interface=x tc956x_port1_interface=y
-
-       argument info:
-	     tc956x_port0_interface: For PORT0 interface mode setting
-	     tc956x_port1_interface: For PORT1 interface mode setting
-	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII]
-	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default)]
-  
-    If invalid and unsupported modes are passed as kernel module parameter, the default interface mode will be selected.
-
-3. Regarding the performance, use the below command to increase the dynamic byte queue limit
-
-    $echo "900000" > /sys/devices/pci0000\:00/0000\:00\:01.0/0000\:01\:00.0/0000\:02\:03.0/0000\:05\:00.0/net/enp5s0f0/queues/tx-0/byte_queue_limits/limit_min
-    900000 is the random value chosen. It needs to adjust this value on their system and check
-    "0000\:00/0000\:00\:01.0/0000\:01\:00.0/0000\:02\:03.0/0000\:05\:00.0/" value can be obtained from the "lspci -t" command
-
-4. The debug counters to check the interrupt count is available.
-
-    "#ethtool -S <interface>" needs to be executed and sample output is as below
-  
-       total_interrupts: 120109
-       lpi_intr_n: 0
-       pmt_intr_n: 0
-       event_intr_n: 0
-       tx_intr_n: 120000
-       rx_intr_n: 51
-       xpcs_intr_n: 0
-       phy_intr_n: 46
-       sw_msi_n: 12
-
-   tx_intr_n = No of. Tx interrupts originating from eMAC
-   sw_msi_n = No. of SW MSIs triggered by Systick Handler as part of optimized Tx Timer based on Systick approach.
-   So total number of interrupts for Tx = tx_intr_n + sw_msi_n
-   Please note that whenever Rx interruts are generated, the Host ISR will process the Tx completed descriptors too.
+1. TC956X_PCIE_GEN3_SETTING macro setting supported through makefile. By default Gen3 settings will not be applied by the Driver as TC956X_PCIE_GEN3_SETTING is not defined.
+2. TC956X_LOAD_FW_HEADER macro setting supported through makefile. By default, TC956X_LOAD_FW_HEADER macro is disabled. If FIRMWARE_NAME is not specified in Makefile, the default value shall be TC956X_Firmware_PCIeBridge.bin
+3. Platform APIs supported.
+4. Modified PHY C22/C45 debug message.

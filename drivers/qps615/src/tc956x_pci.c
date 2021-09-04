@@ -45,6 +45,15 @@
  *  VERSION     : 01-00-05
  *  23 Jul 2021 : 1. Add support for contiguous allocation of memory
  *  VERSION     : 01-00-06
+ *  29 Jul 2021 : 1. Add support to set MAC Address register
+ *  VERSION     : 01-00-07
+ *  05 Aug 2021 : 1. Register Port0 as only PCIe device, incase its PHY is not found
+ *  VERSION     : 01-00-08
+ *  16 Aug 2021 : 1. PHY interrupt mode supported through .config_intr and .ack_interrupt API
+ *  VERSION     : 01-00-09
+ *  24 Aug 2021 : 1. Disable TC956X_PCIE_GEN3_SETTING and TC956X_LOAD_FW_HEADER macros and provide support via Makefile
+ *		: 2. Platform API supported 
+ *  VERSION     : 01-00-10
  */
 
 #include <linux/clk-provider.h>
@@ -74,7 +83,7 @@ static unsigned int tc956x_speed = 3;
 static unsigned int tc956x_port0_interface = ENABLE_XFI_INTERFACE;
 static unsigned int tc956x_port1_interface = ENABLE_SGMII_INTERFACE;
 
-static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 0, 6};
+static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 1, 0};
 
 /*
  * This struct is used to associate PCI Function of MAC controller on a board,
@@ -105,6 +114,11 @@ static struct tc956xmac_rx_parser_entry snps_rxp_entries[] = {
 	},
 #endif
 };
+
+#ifdef DMA_OFFLOAD_ENABLE
+struct pci_dev* port0_pdev;
+#endif
+
 #ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static int tc956xmac_pci_find_phy_addr(struct pci_dev *pdev,
 				const struct dmi_system_id *dmi_list)
@@ -1007,6 +1021,22 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 	plat->rx_dma_ch_owner[6] = RX_DMA_CH6_OWNER;
 	plat->rx_dma_ch_owner[7] = RX_DMA_CH7_OWNER;
 
+	/* Configuration of PHY operating mode 1(true): for interrupt mode, 0(false): for polling mode */
+	if (plat->port_num == RM_PF0_ID) {
+#ifdef TC956X_PHY_INTERRUPT_MODE_EMAC0
+		plat->phy_interrupt_mode = true;
+#else
+		plat->phy_interrupt_mode = false;
+#endif
+	}
+
+	if (plat->port_num == RM_PF1_ID) {
+#ifdef TC956X_PHY_INTERRUPT_MODE_EMAC1
+		plat->phy_interrupt_mode = true;
+#else
+		plat->phy_interrupt_mode = false;
+#endif
+	}
 	return 0;
 }
 
@@ -1549,7 +1579,7 @@ static void tc956x_pcie_disable_dsp2_port(struct device *dev,
 }
 #endif /*#ifdef TC956X_PCIE_DISABLE_DSP2*/
 
-#ifdef TC956X_PCIE_GEN3_SETTING
+//#ifdef TC956X_PCIE_GEN3_SETTING
 static int tc956x_replace_aspm(struct pci_dev *pdev, u16 replace_value, u16 *org_value)
 {
 	int err;
@@ -1696,7 +1726,7 @@ int tc956x_set_pci_speed(struct pci_dev *pdev, u32 speed)
 
 	return ret;
 }
-#endif /*#ifdef TC956X_PCIE_GEN3_SETTING*/
+//#endif /*#ifdef TC956X_PCIE_GEN3_SETTING*/
 #endif /*#ifdef TC956X*/
 
 
@@ -1719,7 +1749,7 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	struct plat_tc956xmacenet_data *plat;
 	struct tc956xmac_resources res;
 #ifdef TC956X
-	/* use signal from EMSPHY */
+	/* use signal from MSPHY */
 	uint8_t SgmSigPol = 0;
 #ifdef TC956X_PCIE_GEN3_SETTING
 	u32 val;
@@ -2079,8 +2109,14 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 
 	ret = tc956xmac_dvr_probe(&pdev->dev, plat, &res);
 	if (ret) {
-		dev_err(&(pdev->dev), "<--%s : ret: %d\n", __func__, ret);
-		goto err_dvr_probe;
+		if (ret == -ENODEV) {
+			dev_info(&(pdev->dev), "Port%d will be registered as PCIe device only", res.port_num);
+			/* Make sure probe() succeeds by returning 0 to caller of probe() */
+			ret = 0;
+		} else {
+			dev_err(&(pdev->dev), "<--%s : ret: %d\n", __func__, ret);
+			goto err_dvr_probe;
+		}
 	}
 #ifdef TC956X
 	if ((res.port_num == RM_PF1_ID) && (res.port_interface == ENABLE_RGMII_INTERFACE)) {
@@ -2104,6 +2140,11 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		dev_dbg(&(pdev->dev), "%s : ltssm_data.ltssm_stop_status = %d\n", __func__, ltssm_data.ltssm_stop_status);
 	}
 #endif /* TC956X_PCIE_LOGSTAT */
+
+#ifdef DMA_OFFLOAD_ENABLE
+	if (res.port_num == RM_PF0_ID)
+		port0_pdev = pdev;
+#endif
 	return ret;
 
 err_out_msi_failed:
@@ -2151,8 +2192,22 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 
 	DBGPR_FUNC(&(pdev->dev), "-->%s\n", __func__);
 
-	tc956xmac_dvr_remove(&pdev->dev);
+#ifdef DMA_OFFLOAD_ENABLE
+	if (priv->port_num == RM_PF0_ID)
+		port0_pdev = NULL;
+#endif
+	/* phy_addr == -1 indicates that PHY was not found and
+	 * device is registered as only PCIe device. So skip any
+	 * ethernet device related uninitialization
+	 */
+	if (priv->plat->phy_addr != -1)
+		tc956xmac_dvr_remove(&pdev->dev);
+
 	pdev->irq = 0;
+
+	if (tc956x_platform_remove(priv)) {
+		dev_err(priv->device, "Platform remove error\n");
+	}
 
 	/* Enable MSI Operation */
 	pci_disable_msi(pdev);
@@ -2199,11 +2254,11 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 static s32 tc956x_pcie_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	s32 ret = 0;
+	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
+	struct tc956xmac_priv *priv = netdev_priv(ndev);
 #ifdef DMA_OFFLOAD_ENABLE
 	u8 i;
 	u32 val;
-	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
-	struct tc956xmac_priv *priv = netdev_priv(ndev);
 #endif
 
 	DBGPR_FUNC(&(pdev->dev), "-->%s\n", __func__);
@@ -2235,6 +2290,13 @@ static s32 tc956x_pcie_suspend(struct pci_dev *pdev, pm_message_t state)
 		}
 	}
 #endif
+
+	ret = tc956x_platform_suspend(priv);
+	if (ret) {
+		NMSGPR_ERR(&(pdev->dev), "%s: error in calling tc956x_platform_suspend", pci_name(pdev));
+		return ret;
+	}
+
 	/* Save the PCI Config Space of the device */
 	ret = pci_save_state(pdev);
 
@@ -2279,7 +2341,7 @@ static int tc956x_pcie_resume_config(struct pci_dev *pdev)
 {
 	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
-	/* use signal from EMSPHY */
+	/* use signal from MSPHY */
 	uint8_t SgmSigPol = 0;
 	int ret = 0;
 
@@ -2466,6 +2528,13 @@ static s32 tc956x_pcie_resume(struct pci_dev *pdev)
 
 	/* Restore PCI config space of device */
 	pci_restore_state(pdev);
+
+	ret = tc956x_platform_resume(priv);
+	if (ret) {
+		NMSGPR_ERR(&(pdev->dev), "%s: error in calling tc956x_platform_resume", pci_name(pdev));
+		pci_disable_device(pdev);
+		return ret;
+	}
 
 	/* Configure TA map registers */
 #ifdef TC956X
