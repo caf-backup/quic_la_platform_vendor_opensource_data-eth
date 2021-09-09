@@ -558,6 +558,33 @@ static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data
 	return 0;
 }
 
+#if ATL_FWD_API_VERSION > 3
+static int aqc_ioss_device_statistics(struct ioss_device *idev,
+					struct ioss_device_stats *statistics)
+{
+	int ret = 0;
+	struct aqc_ioss_device *aqdev = idev->private;
+	struct atl_ext_stats *stats = &aqdev->stats;
+
+	ret = atl_get_ext_stats(idev->net_dev, stats);
+
+	if (ret) {
+		ioss_dev_err(idev, "Failed to get AQC device statistics");
+		return ret;
+	}
+
+	statistics->emac_rx_packets = stats->eth.rx_ether_pkts;
+	statistics->emac_tx_packets = stats->eth.tx_ether_pkts;
+	statistics->emac_rx_bytes = stats->eth.rx_ether_octets;
+	statistics->emac_tx_bytes = stats->eth.tx_ether_octets;
+	statistics->emac_rx_errors = stats->eth.rx_ether_crc_align_errs;
+	statistics->emac_rx_drops = stats->eth.rx_drops;
+	statistics->emac_rx_pause_frames = stats->eth.rx_pause;
+	statistics->emac_tx_pause_frames = stats->eth.tx_pause;
+
+	return ret;
+}
+#else
 static int aqc_ioss_device_statistics(struct ioss_device *idev,
 					struct ioss_device_stats *statistics)
 {
@@ -619,6 +646,7 @@ static int aqc_ioss_device_statistics(struct ioss_device *idev,
 
 	return 0;
 }
+#endif
 
 static int aqc_ioss_channel_statistics(struct ioss_channel *ch,
 					 struct ioss_channel_stats *statistics)
