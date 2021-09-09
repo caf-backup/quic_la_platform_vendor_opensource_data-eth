@@ -9,8 +9,18 @@ else
 CCFLAGS += -m32
 endif
 
+ifeq ($(TC956X_PCIE_GEN3_SETTING),1)
+EXTRA_CFLAGS+=-DTC956X_PCIE_GEN3_SETTING
+endif
+
+ifeq ($(TC956X_LOAD_FW_HEADER),1)
+EXTRA_CFLAGS+=-DTC956X_LOAD_FW_HEADER
+endif
+
 DMA_OFFLOAD = 1
 ccflags-y := -DQCA808X_MOD_LOAD_QUIRK
+ccflags-y += -DTC956X_PCIE_GEN3_SETTING
+ccflags-y += -DFIRMWARE_NAME='"qps615_fw.bin"'
 
 obj-$(CONFIG_QPS615) += qps615.o
 qps615-y += tc956xmac_main.o tc956xmac_ethtool.o tc956xmac_mdio.o \

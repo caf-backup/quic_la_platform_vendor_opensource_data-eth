@@ -38,6 +38,10 @@
  *  VERSION     : 01-00-02
  *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
  *  VERSION     : 01-00-04
+ *  16 Aug 2021 : 1. PHY interrupt mode supported through .config_intr and .ack_interrupt API
+ *  VERSION     : 01-00-09
+ *  24 Aug 2021 : 1. Disable TC956X_PCIE_GEN3_SETTING and TC956X_LOAD_FW_HEADER macros and provide support via Makefile
+ *  VERSION     : 01-00-10
  */
 
 #ifndef __TC956XMAC_PLATFORM_DATA
@@ -50,9 +54,13 @@
 #define TC956X
 //#define TC956X_IOCTL_REG_RD_WR_ENABLE
 //#define TC956X_WITHOUT_MDIO
-#define TC956X_PCIE_GEN3_SETTING
+//#define TC956X_PCIE_GEN3_SETTING
 //#define TC956X_PCIE_DISABLE_DSP1 /*Enable this macro to disable DSP1 port*/
 //#define TC956X_PCIE_DISABLE_DSP2 /*Enable this macro to disable DSP2 port*/
+/* Enable for PORT0 interrupt mode, if commented polling mode */
+#define TC956X_PHY_INTERRUPT_MODE_EMAC0
+/* Enable for PORT1 interrupt mode, if commented polling mode */
+#define TC956X_PHY_INTERRUPT_MODE_EMAC1
 
 /* Enable this macro to use Systick timer instead of Kernel timers
  * for handling Tx completion periodically
@@ -295,5 +303,6 @@ struct plat_tc956xmacenet_data {
 	enum ch_owner rx_dma_ch_owner[MTL_MAX_RX_QUEUES];
 	u32 port_num;
 	u32 port_interface; /* Kernel module parameter variable for interface */
+	bool phy_interrupt_mode; /* For Handling of PHY Operating mode */
 };
 #endif
