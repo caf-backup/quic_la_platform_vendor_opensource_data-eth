@@ -20,9 +20,9 @@
 
 #define RECOMMENDED_FW_VER "1.3.17"
 
-static int fw_ver_check;
-module_param(fw_ver_check, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-MODULE_PARM_DESC(fw_ver_check, "Enable FW check to avoid enabling IPA features [0-Disable, 1-Enable]");
+static bool fw_ver_strict;
+module_param(fw_ver_strict, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(fw_ver_strict, "Enforce strict AQC firmware version check [0-Disable, 1-Enable]");
 
 static void *aqc_ioss_dma_alloc(struct ioss_device *idev,
 			       size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -96,18 +96,15 @@ static int aqc_notifier_cb(struct notifier_block *nb,
 
 static int __check_firmware_version(struct ioss_device *idev)
 {
-	struct ethtool_drvinfo drvinfo;
+	struct ethtool_drvinfo *drv_info = &idev->drv_info;
 
-	if (!idev->net_dev->ethtool_ops || !idev->net_dev->ethtool_ops->get_drvinfo)
-		return -EFAULT;
+	ioss_dev_dbg(idev, "drvinfo.fw_version: %s", drv_info->fw_version);
 
-	memset(&drvinfo, 0, sizeof(drvinfo));
-	idev->net_dev->ethtool_ops->get_drvinfo(idev->net_dev, &drvinfo);
-
-	ioss_dev_dbg(idev, "drvinfo.fw_version: %s", drvinfo.fw_version);
-	if (strcmp(drvinfo.fw_version, RECOMMENDED_FW_VER)) {
-		ioss_dev_err(idev, "Detected FW is not the recommended one"
-				"Please switch to firmware-version: %s", RECOMMENDED_FW_VER);
+	if (strcmp(drv_info->fw_version, RECOMMENDED_FW_VER)) {
+		ioss_dev_err(idev,
+			"Detected FW is not the recommended one."
+			"Please switch to firmware version '%s'.",
+			RECOMMENDED_FW_VER);
 		return -EFAULT;
 	}
 
@@ -120,7 +117,7 @@ static int aqc_ioss_open_device(struct ioss_device *idev)
 
 	ioss_dev_dbg(idev, "%s", __func__);
 
-	if(__check_firmware_version(idev) && fw_ver_check)
+	if(__check_firmware_version(idev) && fw_ver_strict)
 		return -EFAULT;
 
 	aqdev = kzalloc(sizeof(*aqdev), GFP_KERNEL);

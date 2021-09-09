@@ -90,6 +90,8 @@
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 #define PPS_START_DELAY		100000000	/* 100 ms, in unit of ns */
 
+#define QCA808X_PHY_ID 0x004DD101
+
 /* Module parameters */
 #define TX_TIMEO	5000
 static int watchdog = TX_TIMEO;
@@ -10019,6 +10021,17 @@ int tc956xmac_dvr_probe(struct device *device,
 #ifdef TC956X_WITHOUT_MDIO
 	}
 #endif
+
+#ifdef QCA808X_MOD_LOAD_QUIRK
+	/* This WA is placed because qca-ssdk module does not load dynamically after
+	 * mdio_bus_register is done and phy_create is called. qca-ssdk has limitation
+	 * and some prerequistes before it reads the mii bus. To avoid this we have this
+	 * below line of code in place to load the module dynamically and read the mii_bus
+	 */
+	if (mdiobus_get_phy(priv->mii, priv->plat->phy_addr)->phy_id == QCA808X_PHY_ID)
+		request_module("qca-ssdk");
+#endif
+
 	ret = tc956xmac_phy_setup(priv);
 	if (ret) {
 		netdev_err(ndev, "failed to setup phy (%d)\n", ret);

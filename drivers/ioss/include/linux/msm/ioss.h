@@ -161,6 +161,8 @@ struct ioss_device {
 	struct ioss *root;
 	struct device dev;
 	struct net_device *net_dev; /* Real net dev */
+	struct ethtool_drvinfo drv_info;
+
 	struct dentry *debugfs;
 	struct list_head interfaces;
 	struct mutex pm_lock;
