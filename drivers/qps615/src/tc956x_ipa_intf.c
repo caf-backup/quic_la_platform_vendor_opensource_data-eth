@@ -70,7 +70,7 @@
 #define MAX_PARSABLE_FRP_ENTRIES 72
 
 #define IPA_MAX_BUFFER_SIZE (9*1024) /* 9KBytes */
-#define IPA_MAX_DESC_CNT    512
+#define IPA_MAX_DESC_CNT    1024
 #define MAX_WDT		0xFF
 
 #define MAC_ADDR_INDEX 1
