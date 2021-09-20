@@ -4,6 +4,7 @@
 #include <linux/kernel.h>
 #include <linux/device.h>
 #include <linux/pinctrl/consumer.h>
+#include <linux/of_irq.h>
 
 #include "tc956xmac.h"
 
@@ -46,6 +47,20 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto clean_up;
 	}
 
+	res->wol_irq = of_irq_get_byname(priv->device->of_node, "wol_irq");
+	if (res->wol_irq <= 0) {
+		dev_err(priv->device, "Failed to get 'wol_irq' IRQ with error %d\n", res->wol_irq);
+		goto clean_up;
+	}
+
+	dev_dbg(priv->device, "Successfully found WOL IRQ number %d\n", res->wol_irq);
+
+	ret = irq_set_irq_wake(res->wol_irq, 1);
+	if (unlikely(ret)) {
+		dev_err(priv->device, "Failed to set WOL IRQ %d as wake up capable with error %d\n", res->wol_irq, ret);
+		goto clean_up;
+	}
+
 	dev_info(priv->device, "QPS615 platform probing has finished successfully\n");
 	return 0;
 
@@ -63,6 +78,7 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 
 	dev_dbg(priv->device, "Freeing QPS615 platform resources\n");
 
+	irq_set_irq_wake(priv->wol_irq, 0);
 	devm_pinctrl_put(qpriv->pinctrl);
 	kzfree(priv->plat_priv);
 	priv->plat_priv = NULL;
