@@ -925,11 +925,11 @@ static void dwxgmac2_set_filter(struct tc956xmac_priv *priv, struct mac_device_i
 	u32 i;
 
 	value &= ~(XGMAC_FILTER_PR | XGMAC_FILTER_HMC | XGMAC_FILTER_PM |
-		   XGMAC_FILTER_RA);
+		   XGMAC_FILTER_RA| BIT(6) | BIT(7));
 	value |= XGMAC_FILTER_HPF;
 	writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	if (dev->flags & IFF_PROMISC) {
-		value |= XGMAC_FILTER_RA;
+		value |= XGMAC_FILTER_PR;
 		writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	} else if (dev->flags & IFF_ALLMULTI) {
 		value |= XGMAC_FILTER_PM;
