@@ -266,10 +266,10 @@ static void dwxgmac2_dma_rx_mode(struct tc956xmac_priv *priv,
 			break;
 
 		default:
-		/* 7K Clear Trigger when ~1/4th of Q0 is filled */
-			rfd = 0x0E;
-		/* 2.5K Trigger when ~3/4th of Q0 is filled */
-			rfa = 0x03;
+		/* 13K Clear Trigger - deactivate flow control */
+			rfd = 0x18;
+		/* 13K Trigger - Activate flow control */
+			rfa = 0x18;
 			break;
 		}
 
