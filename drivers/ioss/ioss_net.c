@@ -827,7 +827,17 @@ int ioss_net_link_device(struct ioss_device *idev)
 	if (!idev->net_dev)
 		return -ENOENT;
 
-	ioss_dev_log(idev, "Linked to net device %s", idev->net_dev->name);
+	ioss_dev_log(idev, "Linked to net device %s", net_dev->name);
+
+	memset(&idev->drv_info, 0, sizeof(idev->drv_info));
+
+	if (net_dev->ethtool_ops && net_dev->ethtool_ops->get_drvinfo)
+		net_dev->ethtool_ops->get_drvinfo(net_dev, &idev->drv_info);
+
+	ioss_dev_cfg(idev, "addr: %s, driver: %s %s, firmware: %s, erom: %s",
+			idev->drv_info.bus_info,
+			idev->drv_info.driver, idev->drv_info.version,
+			idev->drv_info.fw_version, idev->drv_info.erom_version);
 
 	return 0;
 }

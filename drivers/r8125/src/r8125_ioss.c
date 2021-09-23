@@ -94,7 +94,8 @@ struct r8125_ioss_device {
 	struct ioss_device *idev;
 	struct rtl8125_private *_tp;
 	struct notifier_block nb;
-	struct __rtl8125_regs regs_save;
+	struct rtl8125_counters stats;
+	struct rtl8125_regs_save regs_save;
 };
 
 static int r8125_notifier_cb(struct notifier_block *nb,
@@ -411,144 +412,46 @@ static int r8125_ioss_disable_event(struct ioss_channel *ch)
 static int r8125_save_regs(struct ioss_device *idev,
 		void **regs, size_t *size)
 {
+	int rc = 0;
 	struct r8125_ioss_device *rtldev = idev->private;
-	struct rtl8125_private *tp = rtldev->_tp;
-	struct __rtl8125_regs *rtl_regs = &rtldev->regs_save;
-	int i;
 
-	rtl_regs->begin_ktime = ktime_get();
+	rc = rtl8125_lib_get_stats(idev->net_dev, &rtldev->stats);
+	if (rc)
+		ioss_dev_err(idev, "Failed to get r8125 device statistics");
 
-	rtl_regs->txq0_dsc_st_addr_0 = RTL_R32(tp, TxDescStartAddrLow);
-	rtl_regs->txq0_dsc_st_addr_2 = RTL_R32(tp, TxDescStartAddrHigh);
-	rtl_regs->txq1_dsc_st_addr_0 = RTL_R32(tp, TNPDS_Q1_LOW_8125);
-	rtl_regs->txq1_dsc_st_addr_2 = RTL_R32(tp, (TNPDS_Q1_LOW_8125 + 4));
-	rtl_regs->tppoll = RTL_R8(tp, TPPOLL_8125);
-	rtl_regs->tcr = RTL_R32(tp, TxConfig);
-	rtl_regs->command_register = RTL_R8(tp, ChipCmd);
-	rtl_regs->tx_desc_new_mod = RTL_R8(tp, R8125_TX_DESC_NEW_MOD);
+	rc = rtl8125_lib_save_regs(idev->net_dev, &rtldev->regs_save);
+	if (rc)
+		ioss_dev_err(idev, "Failed to save r8125 device registers");
 
-	rtl_regs->rxq0_dsc_st_addr_0 = RTL_R32(tp, RxDescAddrLow);
-	rtl_regs->rxq0_dsc_st_addr_2 = RTL_R32(tp, RxDescAddrHigh);
-	rtl_regs->rxq1_dsc_st_addr_0 = RTL_R32(tp, RDSAR_Q1_LOW_8125);
-	rtl_regs->rxq1_dsc_st_addr_2 = RTL_R32(tp, (RDSAR_Q1_LOW_8125 + 4));
-	rtl_regs->rms = RTL_R16(tp, RxMaxSize);
-	rtl_regs->rcr = RTL_R32(tp, RxConfig);
-
-	rtl_regs->phy_status = RTL_R32(tp, PHYstatus);
-	rtl_regs->cplus_cmd = RTL_R16(tp, CPlusCmd);
-
-	rtl_regs->sw0_tail_ptr = RTL_R16(tp, SW_TAIL_PTR0_8125);
-	rtl_regs->next_hwq0_clo_ptr = RTL_R16(tp, HW_CLO_PTR0_8125);
-	rtl_regs->sw1_tail_ptr = RTL_R16(tp, (SW_TAIL_PTR0_8125 + 4));
-	rtl_regs->next_hwq1_clo_ptr = RTL_R16(tp, (HW_CLO_PTR0_8125 + 4));
-	rtl_regs->tc_mode = RTL_R16(tp, R8125_TX_NEW_CTRL);
-
-	rtl_regs->int_miti_rxq0 = RTL_R16(tp, INT_MITI_V2_0_RX);
-	rtl_regs->int_miti_txq0 = RTL_R16(tp, INT_MITI_V2_0_TX);
-	rtl_regs->int_miti_rxq1 = RTL_R16(tp, R8125_INT_MITI_V2_1_RX);
-	rtl_regs->int_miti_txq1 = RTL_R16(tp, INT_MITI_V2_1_TX);
-	rtl_regs->int_config = RTL_R8(tp, INT_CFG0_8125);
-	rtl_regs->imr_new = RTL_R32(tp, IMR_V2_CLEAR_REG_8125);
-	rtl_regs->isr_new = RTL_R32(tp, ISR_V2_8125);
-
-	rtl_regs->tdu_status = RTL_R8(tp, R8125_TDU_STATUS);
-	rtl_regs->rdu_status = RTL_R16(tp, R8125_RDU_STATUS);
-
-	rtl_regs->pla_tx_q0_idle_credit = RTL_R32(tp,
-						R8125_PLA_TXQ0_IDLE_CREDIT);
-	rtl_regs->pla_tx_q1_idle_credit = RTL_R32(tp,
-						R8125_PLA_TXQ1_IDLE_CREDIT);
-
-	rtl_regs->rss_ctrl = RTL_R32(tp, RSS_CTRL_8125);
-	for (i = 0; i < RTL8125_RSS_KEY_SIZE; i++)
-		rtl_regs->rss_key[i] = RTL_R8(tp, R8125_RSS_KEY + i);
-
-	for (i = 0; i < RTL8125_MAX_INDIRECTION_TABLE_ENTRIES; i++)
-		rtl_regs->rss_i_table[i] = RTL_R8(tp, R8125_RSS_I_TABLE + i);
-
-	rtl_regs->rss_queue_num_sel_r = RTL_R16(tp, Q_NUM_CTRL_8125);
-
-	rtl_regs->end_ktime = ktime_get();
-
-	rtl_regs->duration_ns =
-		ktime_to_ns(ktime_sub(rtl_regs->end_ktime,
-					rtl_regs->begin_ktime));
-
-	if (regs)
-		*regs = rtl_regs;
-
-	if (size)
-		*size = sizeof(*rtl_regs);
-
-	return 0;
+	return rc;
 }
 
 #if IOSS_API_VER >= 3
-static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data, int scount)
-{
-	int i = 0;
-	const char (*strings)[ETH_GSTRING_LEN] = (typeof(strings))strings_data;
-
-	/* iterate through strings[], find matchging index */
-	for (i = 0; i < scount; i++) {
-		if (strcmp(name, strings[i]) == 0)
-			return data[i];
-	}
-
-	return 0;
-}
-
 static int r8125_ioss_device_statistics(struct ioss_device *idev,
 					struct ioss_device_stats *statistics)
 {
-	u64 *data;
-	u8 *strings;
-	int strings_count = 0;
-	struct ethtool_stats stats;
-	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+	int rc = 0;
+	struct r8125_ioss_device *rtldev = idev->private;
+	struct rtl8125_counters *stats = &rtldev->stats;
 
-	if (ops == NULL ||
-		ops->get_sset_count == NULL ||
-		ops->get_ethtool_stats == NULL ||
-		ops->get_strings == NULL)
-			return -EOPNOTSUPP;
-
-	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
-
-	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-
-	strings = kcalloc(strings_count, ETH_GSTRING_LEN, GFP_KERNEL);
-	if (!strings) {
-		kfree(data);
-		return -ENOMEM;
+	rc = rtl8125_lib_get_stats(idev->net_dev, stats);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to get r8125 device statistics");
+		return rc;
 	}
 
-	memset(&stats, 0, sizeof(stats));
-	stats.n_stats = strings_count;
+	statistics->emac_tx_packets = stats->tx_packets;
+	statistics->emac_rx_packets = stats->rx_packets;
+	statistics->emac_tx_errors = stats->tx_errors;
+	statistics->emac_rx_errors = stats->rx_errors;
+	statistics->emac_rx_bytes = stats->rx_octets;
+	statistics->emac_tx_bytes = stats->tx_octets;
+	statistics->emac_rx_drops = stats->rx_missed;
+	statistics->emac_tx_drops = stats->tx_underrun32;
+	statistics->emac_rx_pause_frames = stats->rx_pause_all;
+	statistics->emac_tx_pause_frames = stats->tx_pause_all;
 
-	rtnl_lock();
-	ops->get_ethtool_stats(idev->net_dev, &stats, data);
-	rtnl_unlock();
-
-	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
-
-	statistics->emac_tx_packets =
-		__get_stats_data("tx_packets", data, strings, strings_count);
-	statistics->emac_rx_packets =
-		__get_stats_data("rx_packets", data, strings, strings_count);
-	statistics->emac_tx_errors =
-		__get_stats_data("tx_errors", data, strings, strings_count);
-	statistics->emac_rx_errors =
-		__get_stats_data("rx_errors", data, strings, strings_count);
-	statistics->emac_rx_drops =
-		__get_stats_data("rx_missed", data, strings, strings_count);
-
-	kfree(data);
-	kfree(strings);
-
-	return 0;
+	return rc;
 }
 
 static int r8125_ioss_channel_statistics(struct ioss_channel *ch,

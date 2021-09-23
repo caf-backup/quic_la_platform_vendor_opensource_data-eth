@@ -45,6 +45,10 @@
  *  VERSION     : 01-00-05
  *  05 Aug 2021 : 1. Register Port0 as only PCIe device, incase its PHY is not found
  *  VERSION     : 01-00-08
+ *  16 Aug 2021 : 1. PHY interrupt mode supported through .config_intr and .ack_interrupt API
+ *  VERSION     : 01-00-09
+ *  24 Aug 2021 : 1. Platform API supported
+ *  VERSION     : 01-00-10
  */
 
 #include <linux/clk.h>
@@ -89,6 +93,8 @@
 
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 #define PPS_START_DELAY		100000000	/* 100 ms, in unit of ns */
+
+#define QCA808X_PHY_ID 0x004DD101
 
 /* Module parameters */
 #define TX_TIMEO	5000
@@ -1296,7 +1302,7 @@ static int tc956xmac_mac_link_state(struct phylink_config *config,
 void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 					const struct phylink_link_state *state)
 {
-	/* use signal from EMSPHY */
+	/* use signal from MSPHY */
 	uint8_t SgmSigPol = 0;
 	int ret = 0;
 	bool enable_an = true;
@@ -1699,6 +1705,40 @@ static void tc956xmac_check_pcs_mode(struct tc956xmac_priv *priv)
 }
 
 /**
+ * tc956xmac_defer_phy_isr_work - Scheduled by the PHY Ext Interrupt from ISR Handler
+ *  @work: work_struct
+ */
+static void tc956xmac_defer_phy_isr_work(struct work_struct *work)
+{
+	struct phy_device *phydev;
+	int rd_val = 0;
+	struct tc956xmac_priv *priv =
+		container_of(work, struct tc956xmac_priv, emac_phy_work);
+	int addr = priv->plat->phy_addr;
+		
+	DBGPR_FUNC(priv->device, "Entry: tc956xmac_defer_phy_isr_work\n");
+
+	phydev = mdiobus_get_phy(priv->mii, addr);
+
+	if (!phydev) {
+		netdev_err(priv->dev, "no phy at addr %d\n", addr);
+		return;
+	}
+	/* Call ack interrupt to clear the WOL interrupt status fields */
+	if (phydev->drv->ack_interrupt)
+		phydev->drv->ack_interrupt(phydev);
+	
+	phy_mac_interrupt(phydev);
+	
+	/* PHY MSI interrupt Enable */
+	rd_val = readl(priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num)); /* MSI_OUT_EN: Reading */
+	rd_val |= (1 << MSI_INT_EXT_PHY);
+	writel(rd_val, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num)); /* MSI_OUT_EN: Enable MAC Ext Interrupt */
+
+	DBGPR_FUNC(priv->device, "Exit: tc956xmac_defer_phy_isr_work \n");
+}
+
+/**
  * tc956xmac_init_phy - PHY initialization
  * @dev: net device structure
  * Description: it initializes the driver's PHY state, and attaches the PHY
@@ -1711,9 +1751,36 @@ static int tc956xmac_init_phy(struct net_device *dev)
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 	struct device_node *node;
 	int ret;
+	struct phy_device *phydev;
+	int addr = priv->plat->phy_addr;
 
 	node = priv->plat->phylink_node;
 
+	phydev = mdiobus_get_phy(priv->mii, addr);
+  
+	if (!phydev) {
+		netdev_err(priv->dev, "no phy at addr %d\n", addr);
+		return -ENODEV;
+	}
+	if(phydev->drv != NULL) {
+		if (true == priv->plat->phy_interrupt_mode && (phydev->drv->config_intr)) {
+			phydev->irq = PHY_IGNORE_INTERRUPT;
+			phydev->interrupts =  PHY_INTERRUPT_ENABLED;
+			KPRINT_INFO("PHY configured in interrupt mode \n");
+			DBGPR_FUNC(priv->device, "%s PHY configured in interrupt mode\n", __func__);
+			
+			INIT_WORK(&priv->emac_phy_work, tc956xmac_defer_phy_isr_work);
+		} else {
+			phydev->irq = PHY_POLL;
+			phydev->interrupts =  PHY_INTERRUPT_DISABLED;
+			DBGPR_FUNC(priv->device, "%s [1] PHY configured in polling mode\n", __func__);
+		}		
+	} else {
+		phydev->irq = PHY_POLL;
+		phydev->interrupts =  PHY_INTERRUPT_DISABLED;
+		DBGPR_FUNC(priv->device, "%s [2] PHY configured in polling mode\n", __func__);
+	}
+	
 	if (node)
 		ret = phylink_of_phy_connect(priv->phylink, node, 0);
 
@@ -1721,10 +1788,6 @@ static int tc956xmac_init_phy(struct net_device *dev)
 	 * manually parse it
 	 */
 	if (!node || ret) {
-		int addr = priv->plat->phy_addr;
-		struct phy_device *phydev;
-
-		phydev = mdiobus_get_phy(priv->mii, addr);
 		if (!phydev || (!phydev->phy_id && !phydev->is_c45)) {
 			/* Try C45 */
 			phydev = get_phy_device(priv->mii, addr, true);
@@ -1747,6 +1810,12 @@ static int tc956xmac_init_phy(struct net_device *dev)
 		ret = phylink_connect_phy(priv->phylink, phydev);
 
 		phy_attached_info(phydev);
+	}
+	if (phydev->interrupts ==  PHY_INTERRUPT_ENABLED) {
+		if (!(phydev->drv->config_intr &&
+			!phydev->drv->config_intr(phydev))){
+			KPRINT_ERR("Failed to configure PHY interrupt port number is %d", priv->port_num);
+		}
 	}
 
 	return ret;
@@ -3701,6 +3770,15 @@ static int tc956xmac_open(struct net_device *dev)
 	int bfsize = 0;
 	u32 chan, rd_val;
 	int ret;
+	struct phy_device *phydev;
+	int addr = priv->plat->phy_addr;
+	
+	phydev = mdiobus_get_phy(priv->mii, addr);
+  
+	if (!phydev) {
+		netdev_err(priv->dev, "no phy at addr %d\n", addr);
+		return -ENODEV;
+	}
 
 	if (priv->hw->pcs != TC956XMAC_PCS_RGMII &&
 	    priv->hw->pcs != TC956XMAC_PCS_TBI &&
@@ -3828,8 +3906,10 @@ static int tc956xmac_open(struct net_device *dev)
 			rd_val |= (1 << (MSI_INT_RX_CH0 + chan));
 	}
 
-	/* PHY MSI interrupt diabled */
-	rd_val |= (1 << MSI_INT_EXT_PHY);
+	if (phydev->interrupts ==  PHY_INTERRUPT_DISABLED) {
+		/* PHY MSI interrupt diabled */
+		rd_val |= (1 << MSI_INT_EXT_PHY);
+	}
 
 	/* Disable MAC Event and XPCS interrupt */
 	rd_val = ENABLE_MSI_INTR & (~rd_val);
@@ -5362,8 +5442,15 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 	tc956xmac_dma_interrupt(priv);
 
 	val = readl(priv->ioaddr + TC956X_MSI_INT_STS_OFFSET(priv->port_num));
-	if (val & TC956X_EXT_PHY_ETH_INT)
-		phy_mac_interrupt(priv->dev->phydev);
+	if (val & TC956X_EXT_PHY_ETH_INT) {
+		KPRINT_INFO("PHY Interrupt %s \n", __func__);
+		/* Queue the work in system_wq */
+		queue_work(system_wq, &priv->emac_phy_work);
+		/* phy_mac_interrupt(priv->dev->phydev); */
+		val = readl(priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num)); /* MSI_OUT_EN: Reading */
+		val &= (~(1 << MSI_INT_EXT_PHY));
+		writel(val, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num)); /* MSI_OUT_EN: Writing to disable MAC Ext Interrupt*/
+	}
 #ifdef TC956X_SW_MSI
 	if (val & TC956X_SW_MSI_INT) {
 		//DBGPR_FUNC(priv->device, "%s SW MSI INT STS[%08x]\n", __func__, val);
@@ -9664,6 +9751,11 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->device = device;
 	priv->dev = ndev;
 
+	ret = tc956x_platform_probe(priv, res);
+	if (ret) {
+		dev_err(priv->device, "Platform probe error %d\n", ret);
+		return -EPERM;
+	}
 #ifdef TC956X
 	priv->mac_loopback_mode = 0; /* Disable MAC loopback by default */
 	priv->phy_loopback_mode = 0; /* Disable PHY loopback by default */
@@ -10019,6 +10111,17 @@ int tc956xmac_dvr_probe(struct device *device,
 #ifdef TC956X_WITHOUT_MDIO
 	}
 #endif
+
+#ifdef QCA808X_MOD_LOAD_QUIRK
+	/* This WA is placed because qca-ssdk module does not load dynamically after
+	 * mdio_bus_register is done and phy_create is called. qca-ssdk has limitation
+	 * and some prerequistes before it reads the mii bus. To avoid this we have this
+	 * below line of code in place to load the module dynamically and read the mii_bus
+	 */
+	if (mdiobus_get_phy(priv->mii, priv->plat->phy_addr)->phy_id == QCA808X_PHY_ID)
+		request_module("qca-ssdk");
+#endif
+
 	ret = tc956xmac_phy_setup(priv);
 	if (ret) {
 		netdev_err(ndev, "failed to setup phy (%d)\n", ret);
@@ -10076,8 +10179,17 @@ int tc956xmac_dvr_remove(struct device *dev)
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
 	u32 val;
+	struct phy_device *phydev;
+	int addr = priv->plat->phy_addr;
 
 	netdev_info(priv->dev, "%s: removing driver", __func__);
+
+	phydev = mdiobus_get_phy(priv->mii, addr);
+
+	if(phydev->drv != NULL) {
+		if ((true == priv->plat->phy_interrupt_mode) && (phydev->drv->config_intr))
+			cancel_work_sync(&priv->emac_phy_work);
+	}
 
 #ifdef CONFIG_DEBUG_FS
 	tc956xmac_exit_fs(ndev);
