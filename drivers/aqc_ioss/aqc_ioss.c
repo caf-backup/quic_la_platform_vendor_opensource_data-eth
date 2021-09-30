@@ -11,11 +11,18 @@
 #define MODULENAME "aqc-ioss"
 
 /* 2 uS is the moderation timer unit */
-#define MODT_UNIT 2
+#define MODT_UNIT_NS 2000ULL
+
 #define MODT_MAX_SHIFT 0x10
 #define MODT_MAX_MASK 0x1FFF
 
 #define RING_SIZE_MASK 0x1FFF
+
+#define RECOMMENDED_FW_VER "1.3.17"
+
+static bool fw_ver_strict;
+module_param(fw_ver_strict, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(fw_ver_strict, "Enforce strict AQC firmware version check [0-Disable, 1-Enable]");
 
 static void *aqc_ioss_dma_alloc(struct ioss_device *idev,
 			       size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -87,11 +94,31 @@ static int aqc_notifier_cb(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static int __check_firmware_version(struct ioss_device *idev)
+{
+	struct ethtool_drvinfo *drv_info = &idev->drv_info;
+
+	ioss_dev_dbg(idev, "drvinfo.fw_version: %s", drv_info->fw_version);
+
+	if (strcmp(drv_info->fw_version, RECOMMENDED_FW_VER)) {
+		ioss_dev_err(idev,
+			"Detected FW is not the recommended one."
+			"Please switch to firmware version '%s'.",
+			RECOMMENDED_FW_VER);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
 static int aqc_ioss_open_device(struct ioss_device *idev)
 {
 	struct aqc_ioss_device *aqdev;
 
 	ioss_dev_dbg(idev, "%s", __func__);
+
+	if(__check_firmware_version(idev) && fw_ver_strict)
+		return -EFAULT;
 
 	aqdev = kzalloc(sizeof(*aqdev), GFP_KERNEL);
 	if (!aqdev)
@@ -266,26 +293,23 @@ static int aqc_ioss_request_event(struct ioss_channel *ch)
 	struct atl_fwd_event *event = NULL;
 	struct atl_fwd_event atl_event = {0};
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: daddr=%pad, DATA: %llu",
-		&ch->event.daddr, ch->event.data);
+	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pap, DATA: %llu",
+		&ch->event.paddr, ch->event.data);
 
-	switch (ch->direction) {
-	case IOSS_CH_DIR_RX:
+	if (ioss_channel_map_event(ch))
+		return -EFAULT;
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
 		atl_event.msi_addr = ch->event.daddr;
 		atl_event.msi_data = (u32)ch->event.data;
-		break;
-	case IOSS_CH_DIR_TX:
+	} else {
 		atl_event.flags = ATL_FWD_EVT_TXWB;
 		atl_event.tx_head_wrb = ch->event.daddr;
-		break;
-	default:
-		ioss_dev_err(ch->iface->idev, "Unsupported direction %d\n", ch->direction);
-		return -ENODEV;
 	}
 
 	event = kzalloc(sizeof(*event), GFP_KERNEL);
-		if (!event)
-			return -ENOMEM;
+	if (!event)
+		goto err_alloc;
 
 	*event = atl_event;
 	event->ring = ring;
@@ -310,6 +334,8 @@ err_intr_mod:
 	atl_fwd_release_event(event);
 err_req_event:
 	kzfree(event);
+err_alloc:
+	ioss_channel_unmap_event(ch);
 
 	return -EINVAL;
 }
@@ -317,11 +343,14 @@ err_req_event:
 static int aqc_ioss_release_event(struct ioss_channel *ch)
 {
 	struct atl_fwd_ring *ring = ch->private;
+	struct atl_fwd_event *event = ring->evt;
 
 	ioss_dev_log(ch->iface->idev, "Release EVENT: daddr=%pad, DATA: %llu",
 		&ch->event.daddr, ch->event.data);
 
-	atl_fwd_release_event(ring->evt);
+	atl_fwd_release_event(event);
+	kzfree(event);
+	ioss_channel_unmap_event(ch);
 
 	return 0;
 }
@@ -529,6 +558,33 @@ static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data
 	return 0;
 }
 
+#if ATL_FWD_API_VERSION > 3
+static int aqc_ioss_device_statistics(struct ioss_device *idev,
+					struct ioss_device_stats *statistics)
+{
+	int ret = 0;
+	struct aqc_ioss_device *aqdev = idev->private;
+	struct atl_ext_stats *stats = &aqdev->stats;
+
+	ret = atl_get_ext_stats(idev->net_dev, stats);
+
+	if (ret) {
+		ioss_dev_err(idev, "Failed to get AQC device statistics");
+		return ret;
+	}
+
+	statistics->emac_rx_packets = stats->eth.rx_ether_pkts;
+	statistics->emac_tx_packets = stats->eth.tx_ether_pkts;
+	statistics->emac_rx_bytes = stats->eth.rx_ether_octets;
+	statistics->emac_tx_bytes = stats->eth.tx_ether_octets;
+	statistics->emac_rx_errors = stats->eth.rx_ether_crc_align_errs;
+	statistics->emac_rx_drops = stats->eth.rx_drops;
+	statistics->emac_rx_pause_frames = stats->eth.rx_pause;
+	statistics->emac_tx_pause_frames = stats->eth.tx_pause;
+
+	return ret;
+}
+#else
 static int aqc_ioss_device_statistics(struct ioss_device *idev,
 					struct ioss_device_stats *statistics)
 {
@@ -590,6 +646,7 @@ static int aqc_ioss_device_statistics(struct ioss_device *idev,
 
 	return 0;
 }
+#endif
 
 static int aqc_ioss_channel_statistics(struct ioss_channel *ch,
 					 struct ioss_channel_stats *statistics)
@@ -622,7 +679,7 @@ static void get_ch_mod(struct ioss_channel *ch,
 	u32 modt_val =
 		(__atl_read(ring->nic, reg_addr) >> MODT_MAX_SHIFT) & MODT_MAX_MASK;
 
-	status->interrupt_modt = modt_val * MODT_UNIT;
+	status->interrupt_modt = modt_val * MODT_UNIT_NS;
 }
 
 static void get_ch_enabled(struct ioss_channel *ch,

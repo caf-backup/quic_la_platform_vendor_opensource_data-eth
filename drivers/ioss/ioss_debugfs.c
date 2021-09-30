@@ -2,6 +2,8 @@
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/debugfs.h>
+
 #include "ioss_i.h"
 
 static struct dentry *root_dir;
@@ -330,7 +332,7 @@ static ssize_t read_ch_status(struct file *file, char __user *user_buf, size_t s
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "size", ch_status.ring_size);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "interrupt_modc",
 			 ch_status.interrupt_modc);
-	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "interrupt_modt",
+	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu ns\n", "interrupt_modt",
 			 ch_status.interrupt_modt);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "head_ptr", ch_status.head_ptr);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "tail_ptr", ch_status.tail_ptr);

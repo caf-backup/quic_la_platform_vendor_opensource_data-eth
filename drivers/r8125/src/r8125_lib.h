@@ -132,6 +132,9 @@ struct rtl8125_ring {
         void *private;
 };
 
+struct rtl8125_counters;
+struct rtl8125_regs_save;
+
 enum rtl8125_rss_flags {
         RTL8125_RSS_HASH_IPV4 = BIT(0),
         RTL8125_RSS_HASH_IPV6 = BIT(1),
@@ -200,5 +203,9 @@ int rtl8125_unregister_notifier(struct net_device *net_dev,
 void rtl8125_lib_reset_prepare(struct rtl8125_private *tp);
 
 void rtl8125_lib_reset_complete(struct rtl8125_private *tp);
+
+int rtl8125_lib_get_stats(struct net_device *ndev, struct rtl8125_counters *stats);
+
+int rtl8125_lib_save_regs(struct net_device *ndev, struct rtl8125_regs_save *stats);
 
 #endif /* _LINUX_rtl8125_LIB_H */

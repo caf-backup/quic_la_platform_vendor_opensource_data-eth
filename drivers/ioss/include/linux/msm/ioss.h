@@ -23,11 +23,65 @@
  * ---------------------------------------------------------------------------
  *   1      - Initial version
  *   2      - Support for crashdump collection
- *   3      - Add debugfs support to get IOSS device and channel stats
+ *   3      - Added driver ops to report statistics and status
+ *   4      - Added head and tail pointer addresses to ioss_channel
+ *   5      - Added ioss_channel_{map,unmap}_event() API as we moved DMA mapping
+ *            of event doorbell address logic to glue drivers
  */
 
-#define IOSS_API_VER 3
+#define IOSS_API_VER 5
 #define IOSS_SUBSYS "ioss"
+
+#define __ioss_log_msg(ipcbuf, fmt, args...) \
+	do { \
+		void *__buf = (ipcbuf); \
+		if (__buf) \
+			ipc_log_string(__buf, " %s:%d " fmt "\n", \
+					__func__, __LINE__, ## args); \
+	} while (0)
+
+#define ioss_log_err(dev, fmt, args...) \
+	do { \
+		void *ioss_get_ipclog_buf_prio(void); \
+		void *ioss_get_ipclog_buf_norm(void); \
+		dev_err(dev, IOSS_SUBSYS ":ERR:" fmt "\n", ##args); \
+		__ioss_log_msg(ioss_get_ipclog_buf_prio(), \
+					"ERR:" fmt, ## args); \
+		__ioss_log_msg(ioss_get_ipclog_buf_norm(), \
+					"ERR:" fmt, ## args); \
+	} while (0)
+
+#define ioss_log_bug(dev, fmt, args...) \
+	do { \
+		ioss_log_err(dev, "BUG:" fmt, ##args); \
+		dump_stack(); \
+	} while (0)
+
+#define ioss_log_cfg(dev, fmt, args...) \
+	do { \
+		void *ioss_get_ipclog_buf_prio(void); \
+		void *ioss_get_ipclog_buf_norm(void); \
+		dev_info(dev, IOSS_SUBSYS ":cfg:" fmt "\n", ##args); \
+		__ioss_log_msg(ioss_get_ipclog_buf_prio(), \
+					"cfg:" fmt, ## args); \
+		__ioss_log_msg(ioss_get_ipclog_buf_norm(), \
+					"cfg:" fmt, ## args); \
+	} while (0)
+
+#define ioss_log_msg(dev, fmt, args...) \
+	do { \
+		void *ioss_get_ipclog_buf_norm(void); \
+		dev_dbg(dev, IOSS_SUBSYS fmt, ##args); \
+		__ioss_log_msg(ioss_get_ipclog_buf_norm(), fmt, ## args); \
+	} while (0)
+
+#define ioss_log_dbg(dev, fmt, args...) \
+	do { \
+		void *ioss_get_ipclog_buf_debug(void); \
+		dev_dbg(dev, IOSS_SUBSYS ":dbg:" fmt "\n", ##args); \
+		__ioss_log_msg(ioss_get_ipclog_buf_debug(), \
+					"dbg:" fmt, ## args); \
+	} while (0)
 
 /**
  * enum ioss_device_events - Events supported by a device
@@ -107,6 +161,8 @@ struct ioss_device {
 	struct ioss *root;
 	struct device dev;
 	struct net_device *net_dev; /* Real net dev */
+	struct ethtool_drvinfo drv_info;
+
 	struct dentry *debugfs;
 	struct list_head interfaces;
 	struct mutex pm_lock;
@@ -135,6 +191,62 @@ static inline struct ioss_device *ioss_real_to_idev(struct device *real_dev)
 
 	return idev_dev ? to_ioss_device(idev_dev) : NULL;
 }
+
+static inline const char *__ioss_dev_name(struct ioss_device *idev)
+{
+	if (!idev)
+		return NULL;
+
+	if (idev->net_dev)
+		return idev->net_dev->name;
+
+	return dev_name(idev->dev.parent);
+}
+
+static inline const char *ioss_dev_name(struct ioss_device *idev)
+{
+	const char *name = __ioss_dev_name(idev);
+
+	if (!name)
+		name = "<noname>";
+
+	return name;
+}
+
+#define ioss_dev_err(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_err(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_bug(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_bug(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_dbg(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_dbg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_log(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_msg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_cfg(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_cfg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
 
 struct ioss_interface {
 	struct list_head node;
@@ -291,6 +403,9 @@ struct ioss_channel {
 	struct list_head desc_mem;
 	struct list_head buff_mem;
 
+	phys_addr_t head_ptr_addr;
+	phys_addr_t tail_ptr_addr;
+
 	void *private;
 
 	bool allocated;
@@ -333,6 +448,15 @@ struct ioss_channel_stats {
 	u64 underflow_error;
 };
 
+/**
+ * struct ioss_channel_status - Status information of a channel
+ * @enabled: Channel is enabled and operational
+ * @ring_size: Descriptor ring size is number of elements
+ * @interrupt_modc: Interrupt moderation counter config
+ * @interrupt_modt: Interrumt moderation timer in nanoseconds
+ * @head_ptr: Value of ring head pointer
+ * @tail_ptr: Value of ring tail pointer
+ */
 struct ioss_channel_status {
 	bool enabled;
 	u64 ring_size;
@@ -346,6 +470,11 @@ struct ioss_channel_status {
 
 #define ioss_for_each_channel(ch, iface) \
 	list_for_each_entry(ch, &iface->channels, node)
+
+static inline char *ioss_ch_dir_s(struct ioss_channel *ch)
+{
+	return (ch->direction == IOSS_CH_DIR_RX) ? "RX" : "TX";
+}
 
 static inline int ioss_channel_add_mem(
 			struct ioss_channel *ch,
@@ -385,6 +514,68 @@ static inline void ioss_channel_del_mem(
 			kfree(imem);
 		}
 	}
+}
+
+/**
+ * ioss_channel_map_event() - DMA map IPA door bell to the peripheral.
+ * @ch: Channel that contains event DB physical address to map
+ *
+ * Helper routine to map IPA door bell physical address to the peripheral IOMMU
+ * context bank.
+ *
+ * Return: 0 on success, non-zero on failure. On success, DMA mapped address of
+ *         door bell is filled in ch->event.daddr.
+ */
+static inline int ioss_channel_map_event(struct ioss_channel *ch)
+{
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct device *dev = ioss_idev_to_real(idev);
+
+	if (ch->event.daddr)
+		return -EEXIST;
+
+	ch->event.daddr = dma_map_resource(dev,
+				ch->event.paddr, sizeof(ch->event.data),
+				DMA_FROM_DEVICE, 0);
+
+	if (dma_mapping_error(dev, ch->event.daddr)) {
+		ioss_dev_err(idev, "Failed to DMA map %s-%d event to %pap",
+				ioss_ch_dir_s(ch), ch->id, &ch->event.paddr);
+		ch->event.daddr = 0;
+		return -EFAULT;
+	}
+
+	ioss_dev_cfg(idev, "Mapped %s-%d event %pad -> %pap",
+			ioss_ch_dir_s(ch), ch->id,
+			&ch->event.daddr, &ch->event.paddr);
+
+	return 0;
+}
+
+/**
+ * ioss_channel_unmap_event() - Unmap IPA DB from peripheral IOMMU CB.
+ * @ch: Channel that contains IPA DB (event DB) information
+ *
+ * Unmaps IPA DB from peripheral IOMMU CB that was previously mapped using
+ * ioss_channel_map_event().
+ */
+static inline void ioss_channel_unmap_event(struct ioss_channel *ch)
+{
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct device *dev = ioss_idev_to_real(idev);
+
+	if (!ch->event.daddr)
+		return;
+
+	dma_unmap_resource(dev,
+			ch->event.daddr, sizeof(ch->event.data),
+			DMA_FROM_DEVICE, 0);
+
+	ioss_dev_cfg(idev, "Unmapped %s-%d event %pad -> %pap",
+			ioss_ch_dir_s(ch), ch->id,
+			&ch->event.daddr, &ch->event.paddr);
+
+	ch->event.daddr = 0;
 }
 
 #define ioss_channel_add_desc_mem(ch, addr, daddr, size) \
@@ -455,112 +646,5 @@ int __ioss_pci_register_driver(struct ioss_driver *drv, struct module *owner);
 	__ioss_pci_register_driver(driver, THIS_MODULE)
 
 void ioss_pci_unregister_driver(struct ioss_driver *drv);
-
-#define __ioss_log_msg(ipcbuf, fmt, args...) \
-	do { \
-		void *__buf = (ipcbuf); \
-		if (__buf) \
-			ipc_log_string(__buf, " %s:%d " fmt "\n", \
-					__func__, __LINE__, ## args); \
-	} while (0)
-
-#define ioss_log_err(dev, fmt, args...) \
-	do { \
-		void *ioss_get_ipclog_buf_prio(void); \
-		void *ioss_get_ipclog_buf_norm(void); \
-		dev_err(dev, IOSS_SUBSYS ":ERR:" fmt "\n", ##args); \
-		__ioss_log_msg(ioss_get_ipclog_buf_prio(), \
-					"ERR:" fmt, ## args); \
-		__ioss_log_msg(ioss_get_ipclog_buf_norm(), \
-					"ERR:" fmt, ## args); \
-	} while (0)
-
-#define ioss_log_bug(dev, fmt, args...) \
-	do { \
-		ioss_log_err(dev, "BUG:" fmt, ##args); \
-		dump_stack(); \
-	} while (0)
-
-#define ioss_log_cfg(dev, fmt, args...) \
-	do { \
-		void *ioss_get_ipclog_buf_prio(void); \
-		void *ioss_get_ipclog_buf_norm(void); \
-		dev_info(dev, IOSS_SUBSYS ":cfg:" fmt "\n", ##args); \
-		__ioss_log_msg(ioss_get_ipclog_buf_prio(), \
-					"cfg:" fmt, ## args); \
-		__ioss_log_msg(ioss_get_ipclog_buf_norm(), \
-					"cfg:" fmt, ## args); \
-	} while (0)
-
-#define ioss_log_msg(dev, fmt, args...) \
-	do { \
-		void *ioss_get_ipclog_buf_norm(void); \
-		dev_dbg(dev, IOSS_SUBSYS fmt, ##args); \
-		__ioss_log_msg(ioss_get_ipclog_buf_norm(), fmt, ## args); \
-	} while (0)
-
-#define ioss_log_dbg(dev, fmt, args...) \
-	do { \
-		void *ioss_get_ipclog_buf_debug(void); \
-		dev_dbg(dev, IOSS_SUBSYS ":dbg:" fmt "\n", ##args); \
-		__ioss_log_msg(ioss_get_ipclog_buf_debug(), \
-					"dbg:" fmt, ## args); \
-	} while (0)
-
-static inline const char *__ioss_dev_name(struct ioss_device *idev)
-{
-	if (!idev)
-		return NULL;
-
-	if (idev->net_dev)
-		return idev->net_dev->name;
-
-	return dev_name(idev->dev.parent);
-}
-
-static inline const char *ioss_dev_name(struct ioss_device *idev)
-{
-	const char *name = __ioss_dev_name(idev);
-
-	if (!name)
-		name = "<noname>";
-
-	return name;
-}
-
-#define ioss_dev_err(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_err(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_bug(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_bug(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_dbg(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_dbg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_log(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_msg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_cfg(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_cfg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
 
 #endif /* _IOSS_H_ */

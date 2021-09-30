@@ -5,6 +5,9 @@
 #ifndef _IOSS_I_H_
 #define _IOSS_I_H_
 
+#include <linux/stat.h>
+#include <linux/module.h>
+
 #include <linux/if_vlan.h>
 #include <linux/platform_device.h>
 
@@ -27,17 +30,21 @@ struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
 };
 
+#if IPA_ETH_API_VER < 2
 union ioss_ipa_eth_hdr {
 	struct ethhdr l2;
 	struct vlan_ethhdr vlan;
 };
+#endif
 
 struct ioss_iface_priv {
 	struct ipa_eth_client ipa_ec;
 	struct ipa_eth_intf_info ipa_ii;
 
+#if IPA_ETH_API_VER < 2
 	union ioss_ipa_eth_hdr ipa_hdr_v4;
 	union ioss_ipa_eth_hdr ipa_hdr_v6;
+#endif
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
@@ -91,7 +98,6 @@ const char *ioss_if_state_name(enum ioss_interface_state state);
 const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
 
 #define if_st_s(iface) ioss_if_state_name(iface->state)
-#define ch_dir_s(ch) ioss_ch_dir_name(ch->dir)
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 

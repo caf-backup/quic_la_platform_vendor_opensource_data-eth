@@ -99,9 +99,41 @@ static bool match_aqc(struct device *real_dev)
 		!strcmp(to_pci_driver(real_dev->driver)->name, "atlantic-fwd");
 }
 
+static int fill_ntn3_si(enum ipa_eth_client_type ctype, struct ioss_channel *ch)
+{
+
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	struct ipa_eth_pipe_setup_info *si = &cp->ipa_pi.info;
+	struct ipa_eth_ntn_setup_info *ntn = &si->client_info.ntn;
+	static const int NTN_BAR_MMIO = 4;
+
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(ch->iface->idev));
+
+	ntn->bar_addr = pci_resource_start(pdev, NTN_BAR_MMIO);
+
+	ioss_dev_log(ch->iface->idev, "NTN: bar=%pap, q=%u\n",
+		&ntn->bar_addr, ch->id);
+
+	ntn->tail_ptr_offs = ch->tail_ptr_addr;
+
+	return 0;
+}
+
+static bool match_ntn3(struct device *real_dev)
+{
+	return (real_dev->bus == &pci_bus_type) &&
+		!strcmp(to_pci_driver(real_dev->driver)->name, "tc956x_pci-eth");
+}
+
+
 struct ioss_ipa_map ioss_ipa_map_table[IPA_ETH_CLIENT_MAX] = {
 	[IPA_ETH_CLIENT_RTK8125B] = { match_r8125, fill_r8125_si },
 	[IPA_ETH_CLIENT_AQC107] = { match_aqc, fill_aqc_si },
+#if IPA_ETH_API_VER >= 2
+	[IPA_ETH_CLIENT_NTN3] = { match_ntn3, fill_ntn3_si },
+#else
+	[IPA_ETH_CLIENT_NTN] = { match_ntn3, fill_ntn3_si },
+#endif
 };
 
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_interface *iface)

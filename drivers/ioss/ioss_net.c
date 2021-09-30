@@ -224,11 +224,23 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+static bool disable_tcm;
+module_param(disable_tcm, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(disable_tcm, "Disable use of LLCC TCM memory allocator");
+
 static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 {
 	u32 ring_size;
 	size_t mem_need = ch->config.ring_size * ch->config.buff_size;
-	size_t mem_size = ioss_llcc_alctr.get(mem_need);
+	size_t mem_size;
+
+	if (disable_tcm) {
+		ioss_dev_cfg(ch->iface->idev,
+			"Not allocating TCM since it is disabled in IOSS");
+		return -ENOMEM;
+	}
+
+	mem_size = ioss_llcc_alctr.get(mem_need);
 
 	ioss_dev_cfg(ch->iface->idev,
 		"Requested %u bytes of LLCC, received %u bytes",
@@ -345,7 +357,6 @@ static void __alloc_channel_revert(struct list_head *node)
 			container_of(node, struct ioss_channel, node));
 }
 
-
 static int ioss_net_alloc_channels(struct ioss_interface *iface)
 {
 	ioss_dev_dbg(iface->idev, "Allocating channels for %s", iface->name);
@@ -447,43 +458,6 @@ static int ioss_net_disable_channels(struct ioss_interface *iface)
 	return rc;
 }
 
-static int __dma_map_event(struct ioss_channel *ch)
-{
-	struct device *dev = ioss_idev_to_real(ioss_ch_dev(ch));
-
-	if (ch->event.daddr)
-		return 0;
-
-	ch->event.daddr = dma_map_resource(dev,
-				ch->event.paddr, sizeof(ch->event.data),
-				DMA_FROM_DEVICE, 0);
-
-	if (dma_mapping_error(dev, ch->event.daddr)) {
-		ioss_dev_dbg(ch->iface->idev,
-				"Failed to DMA map DB address");
-		ch->event.daddr = 0;
-		return -EFAULT;
-	}
-
-	return 0;
-}
-
-static int __dma_unmap_event(struct ioss_channel *ch)
-{
-	struct device *dev = ioss_idev_to_real(ioss_ch_dev(ch));
-
-	if (!ch->event.daddr)
-		return 0;
-
-	dma_unmap_resource(dev,
-			ch->event.daddr, sizeof(ch->event.data),
-			DMA_FROM_DEVICE, 0);
-
-	ch->event.daddr = 0;
-
-	return 0;
-}
-
 static int __ioss_net_setup_event(struct ioss_channel *ch)
 {
 	int rc;
@@ -491,13 +465,6 @@ static int __ioss_net_setup_event(struct ioss_channel *ch)
 
 	ioss_dev_dbg(ch->iface->idev,
 			"Setting up event for channel %d", ch->id);
-
-	rc = __dma_map_event(ch);
-	if (rc) {
-		ioss_dev_err(ch->iface->idev,
-			"Failed to DMA map event for channel %d", ch->id);
-		return rc;
-	}
 
 	rc = ioss_dev_op(idev, request_event, ch);
 	if (rc) {
@@ -524,15 +491,14 @@ static int __ioss_net_setup_event(struct ioss_channel *ch)
 
 err_enable:
 	ioss_dev_op(idev, release_event, ch);
-err_alloc:
-	__dma_unmap_event(ch);
 
+err_alloc:
 	return rc;
 }
 
 static int __ioss_net_teardown_event(struct ioss_channel *ch)
 {
-	int rc1, rc2, rc3;
+	int rc1, rc2;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	ioss_dev_dbg(ch->iface->idev,
@@ -552,12 +518,7 @@ static int __ioss_net_teardown_event(struct ioss_channel *ch)
 	else
 		ch->event.allocated = false;
 
-	rc3 = __dma_unmap_event(ch);
-	if (rc3)
-		ioss_dev_err(ch->iface->idev,
-			"Failed to DMA unmap event for channel %d", ch->id);
-
-	if (rc1 || rc2 || rc3)
+	if (rc1 || rc2)
 		return -EFAULT;
 
 	ioss_dev_log(ch->iface->idev,
@@ -866,7 +827,17 @@ int ioss_net_link_device(struct ioss_device *idev)
 	if (!idev->net_dev)
 		return -ENOENT;
 
-	ioss_dev_log(idev, "Linked to net device %s", idev->net_dev->name);
+	ioss_dev_log(idev, "Linked to net device %s", net_dev->name);
+
+	memset(&idev->drv_info, 0, sizeof(idev->drv_info));
+
+	if (net_dev->ethtool_ops && net_dev->ethtool_ops->get_drvinfo)
+		net_dev->ethtool_ops->get_drvinfo(net_dev, &idev->drv_info);
+
+	ioss_dev_cfg(idev, "addr: %s, driver: %s %s, firmware: %s, erom: %s",
+			idev->drv_info.bus_info,
+			idev->drv_info.driver, idev->drv_info.version,
+			idev->drv_info.fw_version, idev->drv_info.erom_version);
 
 	return 0;
 }
