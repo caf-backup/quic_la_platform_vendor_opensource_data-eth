@@ -49,6 +49,15 @@
  *  VERSION     : 01-00-07
  *  05 Aug 2021 : 1. Register Port0 as only PCIe device, incase its PHY is not found
  *  VERSION     : 01-00-08
+ *  16 Aug 2021 : 1. PHY interrupt mode supported through .config_intr and .ack_interrupt API
+ *  VERSION     : 01-00-09
+ *  24 Aug 2021 : 1. Disable TC956X_PCIE_GEN3_SETTING and TC956X_LOAD_FW_HEADER macros and provide support via Makefile
+ *		: 2. Platform API supported 
+ *  VERSION     : 01-00-10
+ *  02 Sep 2021 : 1. Configuration of Link state L0 and L1 transaction delay for PCIe switch ports & Endpoint.
+ *  VERSION     : 01-00-11
+ *  09 Sep 2021 : Reverted changes related to usage of Port-0 pci_dev for all DMA allocation/mapping for IPA path
+ *  VERSION     : 01-00-12
  */
 
 #include <linux/clk-provider.h>
@@ -78,7 +87,7 @@ static unsigned int tc956x_speed = 3;
 static unsigned int tc956x_port0_interface = ENABLE_XFI_INTERFACE;
 static unsigned int tc956x_port1_interface = ENABLE_SGMII_INTERFACE;
 
-static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 0, 8};
+static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 1, 2};
 
 /*
  * This struct is used to associate PCI Function of MAC controller on a board,
@@ -1016,6 +1025,22 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 	plat->rx_dma_ch_owner[6] = RX_DMA_CH6_OWNER;
 	plat->rx_dma_ch_owner[7] = RX_DMA_CH7_OWNER;
 
+	/* Configuration of PHY operating mode 1(true): for interrupt mode, 0(false): for polling mode */
+	if (plat->port_num == RM_PF0_ID) {
+#ifdef TC956X_PHY_INTERRUPT_MODE_EMAC0
+		plat->phy_interrupt_mode = true;
+#else
+		plat->phy_interrupt_mode = false;
+#endif
+	}
+
+	if (plat->port_num == RM_PF1_ID) {
+#ifdef TC956X_PHY_INTERRUPT_MODE_EMAC1
+		plat->phy_interrupt_mode = true;
+#else
+		plat->phy_interrupt_mode = false;
+#endif
+	}
 	return 0;
 }
 
@@ -1558,7 +1583,7 @@ static void tc956x_pcie_disable_dsp2_port(struct device *dev,
 }
 #endif /*#ifdef TC956X_PCIE_DISABLE_DSP2*/
 
-#ifdef TC956X_PCIE_GEN3_SETTING
+//#ifdef TC956X_PCIE_GEN3_SETTING
 static int tc956x_replace_aspm(struct pci_dev *pdev, u16 replace_value, u16 *org_value)
 {
 	int err;
@@ -1705,7 +1730,7 @@ int tc956x_set_pci_speed(struct pci_dev *pdev, u32 speed)
 
 	return ret;
 }
-#endif /*#ifdef TC956X_PCIE_GEN3_SETTING*/
+//#endif /*#ifdef TC956X_PCIE_GEN3_SETTING*/
 #endif /*#ifdef TC956X*/
 
 
@@ -1727,8 +1752,11 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	struct tc956xmac_pci_info *info = (struct tc956xmac_pci_info *)id->driver_data;
 	struct plat_tc956xmacenet_data *plat;
 	struct tc956xmac_resources res;
+#ifdef TC956X_PCIE_LINK_STATE_LATENCY_CTRL
+	u32 reg_val;
+#endif /* end of TC956X_PCIE_LINK_STATE_LATENCY_CTRL */
 #ifdef TC956X
-	/* use signal from EMSPHY */
+	/* use signal from MSPHY */
 	uint8_t SgmSigPol = 0;
 #ifdef TC956X_PCIE_GEN3_SETTING
 	u32 val;
@@ -1762,6 +1790,9 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 				     GFP_KERNEL);
 	if (!plat->dma_cfg)
 		return -ENOMEM;
+
+	pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
+	dev_info(&pdev->dev, "%s: qcdbg, disable ASPM done\n",__func__);
 
 	/* Enable pci device */
 	ret = pci_enable_device(pdev);
@@ -1861,6 +1892,56 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	if ((tc956x_speed >= 1) && (tc956x_speed <= 3))
 		tc956x_set_pci_speed(pdev, tc956x_speed);
 #endif
+
+#ifdef TC956X_PCIE_LINK_STATE_LATENCY_CTRL
+	/* 0x4002_C02C SSREG_GLUE_SW_REG_ACCESS_CTRL.sw_port_reg_access_enable for USP Access enable */
+	writel(SW_USP_ENABLE, res.addr + TC956X_GLUE_SW_REG_ACCESS_CTRL);
+	/* 0x4002_496C K_PEXCONF_209_205.aspm_l0s_entry_delay in terms of 256ns */
+	writel(USP_L0s_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L0s_ENTRY_LATENCY);
+	/* 0x4002_4970 K_PEXCONF_210_219.aspm_L1_entry_delay in terms of 256ns */
+	writel(USP_L1_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L1_ENTRY_LATENCY);
+
+	/* 0x4002_C02C SSREG_GLUE_SW_REG_ACCESS_CTRL.sw_port_reg_access_enable for DSP1 Access enable */
+	writel(SW_DSP1_ENABLE, res.addr + TC956X_GLUE_SW_REG_ACCESS_CTRL);
+	/* 0x4002_496C K_PEXCONF_209_205.aspm_l0s_entry_delay in terms of 256ns */
+	writel(DSP1_L0s_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L0s_ENTRY_LATENCY);
+	/* 0x4002_4970 K_PEXCONF_210_219.aspm_L1_entry_delay in terms of 256ns */
+	writel(DSP1_L1_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L1_ENTRY_LATENCY);
+
+	/* 0x4002_C02C SSREG_GLUE_SW_REG_ACCESS_CTRL.sw_port_reg_access_enable for DSP2 Access enable */
+	writel(SW_DSP2_ENABLE, res.addr + TC956X_GLUE_SW_REG_ACCESS_CTRL);
+	/* 0x4002_496C K_PEXCONF_209_205.aspm_l0s_entry_delay in terms of 256ns */
+	writel(DSP2_L0s_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L0s_ENTRY_LATENCY);
+	/* 0x4002_4970 K_PEXCONF_210_219.aspm_L1_entry_delay in terms of 256ns */
+	writel(DSP2_L1_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L1_ENTRY_LATENCY);
+
+	/* 0x4002_C02C SSREG_GLUE_SW_REG_ACCESS_CTRL.sw_port_reg_access_enable 
+			for VDSP Access enable */
+	writel(SW_VDSP_ENABLE, res.addr + TC956X_GLUE_SW_REG_ACCESS_CTRL);
+	/* 0x4002_496C K_PEXCONF_209_205.aspm_l0s_entry_delay in terms of 256ns */
+	writel(VDSP_L0s_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L0s_ENTRY_LATENCY);
+	/* 0x4002_4970 K_PEXCONF_210_219.aspm_L1_entry_delay in terms of 256ns */
+	writel(VDSP_L1_ENTRY_DELAY, res.addr + TC956X_PCIE_S_L1_ENTRY_LATENCY);
+
+	/* 0x4002_00D8 Reading PCIE EP Capability setting Register */
+	reg_val = readl(res.addr + TC956X_PCIE_EP_CAPB_SET);
+
+	/* Clearing PCIE EP Capability setting of L0s & L1 entry delays */
+	reg_val &= ~(TC956X_PCIE_EP_L0s_ENTRY_MASK | TC956X_PCIE_EP_L1_ENTRY_MASK);
+
+	/* Updating PCIE EP Capability setting of L0s & L1 entry delays */
+	reg_val |= (((EP_L0s_ENTRY_DELAY << TC956X_PCIE_EP_L0s_ENTRY_SHIFT) &
+				TC956X_PCIE_EP_L0s_ENTRY_MASK) | 
+			((EP_L1_ENTRY_DELAY << TC956X_PCIE_EP_L1_ENTRY_SHIFT) &
+				TC956X_PCIE_EP_L1_ENTRY_MASK));
+
+	/* 0x4002_00D8 PCIE EP Capability setting L0S & L1 entry delay in terms of 256ns */
+	writel(reg_val, res.addr + TC956X_PCIE_EP_CAPB_SET);
+
+	/* 0x4002_C02C SSREG_GLUE_SW_REG_ACCESS_CTRL.sw_port_reg_access_enable 
+			for All Switch Ports Access enable */
+	writel(TC956X_PCIE_S_EN_ALL_PORTS_ACCESS, res.addr + TC956X_GLUE_SW_REG_ACCESS_CTRL);
+#endif /* end of TC956X_PCIE_LINK_STATE_LATENCY_CTRL */
 
 #ifdef TC956X_PCIE_DISABLE_DSP1
 	tc956x_pcie_disable_dsp1_port(&pdev->dev, res.tc956x_SFR_pci_base_addr);
@@ -2184,6 +2265,10 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 
 	pdev->irq = 0;
 
+	if (tc956x_platform_remove(priv)) {
+		dev_err(priv->device, "Platform remove error\n");
+	}
+
 	/* Enable MSI Operation */
 	pci_disable_msi(pdev);
 
@@ -2229,11 +2314,11 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 static s32 tc956x_pcie_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	s32 ret = 0;
+	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
+	struct tc956xmac_priv *priv = netdev_priv(ndev);
 #ifdef DMA_OFFLOAD_ENABLE
 	u8 i;
 	u32 val;
-	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
-	struct tc956xmac_priv *priv = netdev_priv(ndev);
 #endif
 
 	DBGPR_FUNC(&(pdev->dev), "-->%s\n", __func__);
@@ -2265,6 +2350,13 @@ static s32 tc956x_pcie_suspend(struct pci_dev *pdev, pm_message_t state)
 		}
 	}
 #endif
+
+	ret = tc956x_platform_suspend(priv);
+	if (ret) {
+		NMSGPR_ERR(&(pdev->dev), "%s: error in calling tc956x_platform_suspend", pci_name(pdev));
+		return ret;
+	}
+
 	/* Save the PCI Config Space of the device */
 	ret = pci_save_state(pdev);
 
@@ -2309,7 +2401,7 @@ static int tc956x_pcie_resume_config(struct pci_dev *pdev)
 {
 	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
-	/* use signal from EMSPHY */
+	/* use signal from MSPHY */
 	uint8_t SgmSigPol = 0;
 	int ret = 0;
 
@@ -2496,6 +2588,13 @@ static s32 tc956x_pcie_resume(struct pci_dev *pdev)
 
 	/* Restore PCI config space of device */
 	pci_restore_state(pdev);
+
+	ret = tc956x_platform_resume(priv);
+	if (ret) {
+		NMSGPR_ERR(&(pdev->dev), "%s: error in calling tc956x_platform_resume", pci_name(pdev));
+		pci_disable_device(pdev);
+		return ret;
+	}
 
 	/* Configure TA map registers */
 #ifdef TC956X

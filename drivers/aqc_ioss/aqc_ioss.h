@@ -20,6 +20,9 @@ struct aqc_ioss_device {
 	struct atl_nic *nic;
 	struct notifier_block nb;
 	struct aqc_ioss_regs regs_save;
+#if ATL_FWD_API_VERSION > 3
+	struct atl_ext_stats stats;
+#endif
 };
 
 #endif /* _AQC_IOSS_H_ */

@@ -129,7 +129,11 @@ static bool match_ntn3(struct device *real_dev)
 struct ioss_ipa_map ioss_ipa_map_table[IPA_ETH_CLIENT_MAX] = {
 	[IPA_ETH_CLIENT_RTK8125B] = { match_r8125, fill_r8125_si },
 	[IPA_ETH_CLIENT_AQC107] = { match_aqc, fill_aqc_si },
+#if IPA_ETH_API_VER >= 2
+	[IPA_ETH_CLIENT_NTN3] = { match_ntn3, fill_ntn3_si },
+#else
 	[IPA_ETH_CLIENT_NTN] = { match_ntn3, fill_ntn3_si },
+#endif
 };
 
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_interface *iface)

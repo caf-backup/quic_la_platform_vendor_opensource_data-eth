@@ -81,6 +81,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	return 0;
 }
 
+#if IPA_ETH_API_VER < 2
 static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
 {
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
@@ -159,6 +160,7 @@ static int ioss_ipa_fill_hdrs(struct ioss_interface *iface)
 
 	return 0;
 }
+#endif
 
 static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 {
@@ -184,6 +186,7 @@ static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 	return 0;
 }
 
+#if IPA_ETH_API_VER < 2
 static int __ioss_ipa_msg(struct net_device *net_dev, bool connect)
 {
 	struct ipa_ecm_msg msg;
@@ -206,16 +209,21 @@ static int ioss_ipa_msg_disconnect(struct net_device *net_dev)
 {
 	return __ioss_ipa_msg(net_dev, false);
 }
+#endif
 
 int ioss_ipa_register(struct ioss_interface *iface)
 {
 	int i;
+#if IPA_ETH_API_VER < 2
 	int ch_count;
+#endif
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 	struct ioss_channel *ch;
+#if IPA_ETH_API_VER < 2
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+#endif
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
@@ -229,7 +237,9 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	INIT_LIST_HEAD(&ec->pipe_list);
 
+#if IPA_ETH_API_VER < 2
 	ch_count = 0;
+#endif
 	ioss_for_each_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
@@ -241,8 +251,11 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		}
 
 		list_add_tail(&cp->ipa_pi.link, &ec->pipe_list);
+#if IPA_ETH_API_VER < 2
 		ch_count++;
+#endif
 	}
+#if IPA_ETH_API_VER < 2
 	ii->pipe_hdl_list_size = ch_count;
 
 	ii->pipe_hdl_list = kcalloc(ii->pipe_hdl_list_size,
@@ -258,8 +271,12 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		ioss_dev_err(iface->idev, "Failed to fill partial headers");
 		return -EINVAL;
 	}
+#endif
 
 	/* connect pipes */
+#if IPA_ETH_API_VER >= 2
+	ec->net_dev = ioss_iface_to_netdev(iface);
+#endif
 	if (ipa_eth_client_conn_pipes(ec)) {
 		ioss_dev_err(iface->idev, "Failed to connect pipes");
 		return -EINVAL;
@@ -281,20 +298,29 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		ch->event.paddr = si->db_pa;
 		ch->event.data = si->db_val;
 
+#if IPA_ETH_API_VER < 2
 		ii->pipe_hdl_list[i++] = pi->pipe_hdl;
+#endif
 	}
 
 	/* register interface */
+#if IPA_ETH_API_VER >= 2
+	ii->client = ec;
+	ii->is_conn_evt = true;
+#endif
+
 	if (ipa_eth_client_reg_intf(ii)) {
 		ioss_dev_err(iface->idev, "Failed to register interface");
 		return -EINVAL;
 	}
 
+#if IPA_ETH_API_VER < 2
 	/* send ecm msg */
 	if (ioss_ipa_msg_connect(net_dev)) {
 		ioss_dev_err(iface->idev, "Failed to send connect message");
 		return -EINVAL;
 	}
+#endif
 
 	return 0;
 }
@@ -306,9 +332,11 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
+#if IPA_ETH_API_VER < 2
 	union ioss_ipa_eth_hdr *hdr_v4 = &ifp->ipa_hdr_v4;
 	union ioss_ipa_eth_hdr *hdr_v6 = &ifp->ipa_hdr_v6;
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+#endif
 
 	/* connect pipes */
 	rc = ipa_eth_client_disconn_pipes(ec);
@@ -324,6 +352,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 		return rc;
 	}
 
+#if IPA_ETH_API_VER < 2
 	/* send ecm msg */
 	rc = ioss_ipa_msg_disconnect(net_dev);
 	if (rc) {
@@ -335,6 +364,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	memset(hdr_v6, 0, sizeof(*hdr_v6));
 
 	kfree(ii->pipe_hdl_list);
+#endif
 	memset(ii, 0, sizeof(*ii));
 
 	ioss_for_each_channel(ch, iface) {
