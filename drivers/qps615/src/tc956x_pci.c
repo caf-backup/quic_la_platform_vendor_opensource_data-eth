@@ -1795,9 +1795,6 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	if (!plat->dma_cfg)
 		return -ENOMEM;
 
-	pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
-	dev_info(&pdev->dev, "%s: qcdbg, disable ASPM done\n",__func__);
-
 	/* Enable pci device */
 	ret = pci_enable_device(pdev);
 	if (ret) {
