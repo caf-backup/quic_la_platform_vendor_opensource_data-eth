@@ -34,6 +34,10 @@
  *  VERSION     : 01-00-02
  *  20 Jul 2021 : 1. Debug prints removed
  *  VERSION     : 01-00-03
+ *  23 Sep 2021 : 1. Updating RX Queue Threshold Limits for Flow control
+ *  		  Threshold Limit for Activating Flow control 
+ *  		  Threshold Limit for Deactivating Flow control 
+ *  VERSION     : 01-00-14
  */
 
 #include <linux/iopoll.h>
@@ -266,10 +270,10 @@ static void dwxgmac2_dma_rx_mode(struct tc956xmac_priv *priv,
 			break;
 
 		default:
-		/* 13K Clear Trigger - deactivate flow control */
-			rfd = 0x18;
-		/* 13K Trigger - Activate flow control */
-			rfa = 0x18;
+		/* 13K Clear Trigger when Q(x) is filled with Max Size - 13K */
+			rfd = 24;
+		/* 13K Trigger when Q(x) is filled with Max Size - 13K */
+			rfa = 24;
 			break;
 		}
 
