@@ -16,6 +16,58 @@
 #include "tc956x_ipa_intf.h"
 #include "tc956xmac.h"
 
+static void *qps615_ioss_dma_alloc(struct ioss_device *idev,
+			       size_t size, dma_addr_t *daddr, gfp_t gfp,
+			       struct ioss_mem_allocator *alctr)
+{
+	return alctr->alloc(idev, size, daddr, gfp, alctr);
+}
+
+static void qps615_ioss_dma_free(struct ioss_device *idev,
+			     size_t size, void *buf, dma_addr_t daddr,
+			     struct ioss_mem_allocator *alctr)
+{
+	return alctr->free(idev, size, buf, daddr, alctr);
+}
+
+static void *qps615_ioss_alloc_descs(struct net_device *ndev, size_t size,
+				 dma_addr_t *daddr, gfp_t gfp, struct mem_ops *mem_ops,
+				 struct channel_info *ch_info)
+{
+	struct ioss_channel *ch = ch_info->client_ch_priv;
+
+	return qps615_ioss_dma_alloc(ioss_ch_dev(ch), size, daddr, gfp,
+			ch->config.desc_alctr);
+}
+
+static void *qps615_ioss_alloc_buf(struct net_device *ndev, size_t size,
+			       dma_addr_t *daddr, gfp_t gfp,struct mem_ops *mem_ops,
+			       struct channel_info *ch_info)
+{
+	struct ioss_channel *ch = ch_info->client_ch_priv;
+
+	return qps615_ioss_dma_alloc(ioss_ch_dev(ch), size, daddr, gfp,
+			ch->config.buff_alctr);
+}
+
+static void qps615_ioss_free_descs(struct net_device *ndev, void *buf, size_t size,
+			       dma_addr_t *daddr, struct mem_ops *mem_ops, struct channel_info *ch_info)
+{
+	struct ioss_channel *ch = ch_info->client_ch_priv;
+
+	return qps615_ioss_dma_free(ioss_ch_dev(ch), size, buf, *daddr,
+			ch->config.desc_alctr);
+}
+
+static void qps615_ioss_free_buf(struct net_device *ndev, void *buf, size_t size,
+			     dma_addr_t *daddr, struct mem_ops *mem_ops, struct channel_info *ch_info)
+{
+	struct ioss_channel *ch = ch_info->client_ch_priv;
+
+	return qps615_ioss_dma_free(ioss_ch_dev(ch), size, buf, *daddr,
+			ch->config.buff_alctr);
+}
+
 static int qps615_ioss_open_device(struct ioss_device *idev)
 {
 	/* any event registration with toshiba */
@@ -42,18 +94,28 @@ static int qps615_ioss_request_channel(struct ioss_channel *ch)
 		     __func__, ch->config.ring_size, ch->config.buff_size,
 			ch->direction);
 
+
+	ipa_channel_info.mem_ops = kzalloc(sizeof(*ipa_channel_info.mem_ops), GFP_KERNEL);
+	if (!ipa_channel_info.mem_ops)
+		return -ENOMEM;
+
+	ipa_channel_info.mem_ops->alloc_descs = qps615_ioss_alloc_descs;
+	ipa_channel_info.mem_ops->alloc_buf = qps615_ioss_alloc_buf;
+	ipa_channel_info.mem_ops->free_descs = qps615_ioss_free_descs;
+	ipa_channel_info.mem_ops->free_buf = qps615_ioss_free_buf;
+	ipa_channel_info.client_ch_priv = ch;
+
 	ipa_channel_info.ndev = ioss_ch_dev(ch)->net_dev;
 	ipa_channel_info.desc_cnt = ch->config.ring_size;
 	ipa_channel_info.ch_dir = direction;
 	ipa_channel_info.buf_size = ch->config.buff_size;
 	ipa_channel_info.ch_flags = TC956X_CONTIG_BUFS;
-	ipa_channel_info.mem_ops = NULL;
-	ipa_channel_info.client_ch_priv = NULL;
 	ipa_channel_info.flags = GFP_KERNEL;
 	ring = request_channel(&ipa_channel_info);
 
 	if (!ring) {
 		ioss_dev_err(ch->iface->idev, "Failed to request ring\n");
+		kzfree(ipa_channel_info.mem_ops);
 		return -ENOMEM;
 	}
 
@@ -88,15 +150,18 @@ static int qps615_ioss_request_channel(struct ioss_channel *ch)
 	ch->id = ring->channel_num;
 	ch->private = ring;
 
-	return rc;
+	return 0;
 
 release_desc:
-	release_channel(ioss_ch_dev(ch)->net_dev,ring);
 	ioss_channel_del_desc_mem(ch, ring->desc_addr.desc_virt_addrs_base);
-	return -EFAULT;
-
+	for (i = 0; i < ring->desc_cnt; i++) {
+		void *vaddr = (void *)ring->buff_pool_addr.buff_pool_va_addrs_base[0];
+		void *addr = vaddr + (ring->buf_size * i);
+		ioss_channel_del_buff_mem(ch, addr);
+	}
 release_channel:
 	release_channel(ioss_ch_dev(ch)->net_dev,ring);
+	kzfree(ipa_channel_info.mem_ops);
 	return -ENOMEM;
 }
 
@@ -104,6 +169,7 @@ static int qps615_ioss_release_channel(struct ioss_channel *ch)
 {
 	int i;
 	struct channel_info *ring = ch->private;
+	struct mem_ops *mem_ops = ring->mem_ops;
 
 	ioss_dev_log(ch->iface->idev, "Release ring %d\n", ring->channel_num);
 
@@ -116,6 +182,7 @@ static int qps615_ioss_release_channel(struct ioss_channel *ch)
 	}
 
 	release_channel(ioss_ch_dev(ch)->net_dev,ring);
+	kzfree(mem_ops);
 
 	ch->id = -1;
 	ch->private = NULL;

@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 24 Aug 2021
+Release Date: 23 Sep 2021
 
-Release Version: V_01-00-10 : Limited-tested version
+Release Version: V_01-00-14 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -43,17 +43,17 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 1. Use below commands to advertise with Autonegotiation ON for speeds 10Gbps, 5Gbps, 2.5Gbps, 1Gbps, 100Mbps and 10Mbps as ethtool speed command does not support.
 
-    ethtool -s <interface> advertise 0x1000 autoneg on --> changes the advertisement to 10Gbps
+    ethtool -s <interface> advertise 0x7000 autoneg on --> changes the advertisement to 10Gbps
     
-    ethtool -s <interface> advertise 0x1000000000000 autoneg on --> changes the advertisement to 5Gbps
+    ethtool -s <interface> advertise 0x1000000006000 autoneg on --> changes the advertisement to 5Gbps
 
-    ethtool -s <interface> advertise 0x800000000000 autoneg on --> changes the advertisement to 2.5Gbps
+    ethtool -s <interface> advertise 0x800000006000 autoneg on --> changes the advertisement to 2.5Gbps
 
-    ethtool -s <interface> advertise 0x020 autoneg on --> changes the advertisement to 1Gbps
+    ethtool -s <interface> advertise 0x6020 autoneg on --> changes the advertisement to 1Gbps
 
-    ethtool -s <interface> advertise 0x008 autoneg on --> changes the advertisement to 100Mbps
+    ethtool -s <interface> advertise 0x6008 autoneg on --> changes the advertisement to 100Mbps
 
-    ethtool -s <interface> advertise 0x002 autoneg on --> changes the advertisement 10Mbps
+    ethtool -s <interface> advertise 0x6002 autoneg on --> changes the advertisement 10Mbps
 
 2. Use the below command to insert the kernel module with specific modes for interfaces:
 	
@@ -100,6 +100,56 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 7. Enable TC956X_PHY_INTERRUPT_MODE_EMAC0 macro for supporting PORT0 Interrupt mode. Disable the macro if the phy driver supports only polling mode.
    Enable TC956X_PHY_INTERRUPT_MODE_EMAC1 macro for supporting PORT1 Interrupt mode. Disable the macro if the phy driver supports only polling mode.
+
+8. Change below macro values for configuration of Link state L0 and L1 transaction delay.
+	/* Link state change delay configuration for Upstream Port */
+	#define USP_L0s_ENTRY_DELAY	(0x1FU)
+	#define USP_L1_ENTRY_DELAY	(0x3FFU)
+
+	/* Link state change delay configuration for Downstream Port-1 */
+	#define DSP1_L0s_ENTRY_DELAY	(0x1FU)
+	#define DSP1_L1_ENTRY_DELAY	(0x3FFU)
+
+	/* Link state change delay configuration for Downstream Port-2 */
+	#define DSP2_L0s_ENTRY_DELAY	(0x1FU)
+	#define DSP2_L1_ENTRY_DELAY	(0x3FFU)
+
+	/* Link state change delay configuration for Virtual Downstream Port */
+	#define VDSP_L0s_ENTRY_DELAY	(0x1FU)
+	#define VDSP_L1_ENTRY_DELAY	(0x3FFU)
+
+	/* Link state change delay configuration for Internal Endpoint */
+	#define EP_L0s_ENTRY_DELAY	(0x1FU)
+	#define EP_L1_ENTRY_DELAY	(0x3FFU)
+
+Formula:
+	L0 entry delay = XXX_L0s_ENTRY_DELAY * 256 ns
+	L1 entry delay = XXX_L1_ENTRY_DELAY * 256 ns
+	
+	XXX_L0s_ENTRY_DELAY range: 1-31
+	XXX_L1_ENTRY_DELAY: 1-1023
+
+9. To check vlan feature status execute:
+	ethtool -k <interface> | grep vlan
+
+To enable/disable following vlan features execute:
+	(a) rx-vlan-filter:
+		ethtool -K <interface> rx-vlan-filter <on|off>
+	(b) rx-vlan-offload:
+		ethtool -K <interface> rxvlan <on|off>
+	(c) tx-vlan-offload:
+		ethtool -K <interface> txvlan <on|off>
+
+Use following to configure VLAN:
+	(a) modprobe 8021q
+	(b) vconfig add <interface> <vlanid>
+	(c) vconfig set_flag <interface>.<vlanid> 1 0
+	(d) ifconfig <interface>.<vlanid> <ip> netmask 255.255.255.0 broadcast <ip mask> up
+
+Default Configuraton:
+	(a) Rx vlan filter is disabled.
+	(b) Rx valn offload (vlan stripping) is disabled.
+	(c) Tx vlan offload is enabled.
 
 # Release Versions:
 
@@ -158,3 +208,24 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 2. TC956X_LOAD_FW_HEADER macro setting supported through makefile. By default, TC956X_LOAD_FW_HEADER macro is disabled. If FIRMWARE_NAME is not specified in Makefile, the default value shall be TC956X_Firmware_PCIeBridge.bin
 3. Platform APIs supported.
 4. Modified PHY C22/C45 debug message.
+
+## TC956X_Host_Driver_20210902_V_01-00-11:
+
+1. Configuration of Link state L0 and L1 transaction delay for PCIe switch ports & Endpoint. By default maximum values are set for L0s and L1 latencies.
+
+## TC956X_Host_Driver_20210909_V_01-00-12:
+
+1. Reverted changes related to usage of Port-0 pci_dev for all DMA allocation/mapping for IPA path
+
+## TC956X_Host_Driver_20210914_V_01-00-13:
+
+1. Synchronization between ethtool vlan features "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter", and "tx-vlan-offload".
+3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+
+## TC956X_Host_Driver_20210923_V_01-00-14:
+
+1. Updated RX Queue Threshold limits for Activating and Deactivating Flow control 
+2. Filtering All pause frames by default.
+3. Capturing RBU status and updating to ethtool statistics for both S/W & IPA DMA channels
