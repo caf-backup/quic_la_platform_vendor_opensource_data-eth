@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 09 Sep 2021
+Release Date: 23 Sep 2021
 
-Release Version: V_01-00-12 : Limited-tested version
+Release Version: V_01-00-14 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -43,17 +43,17 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 1. Use below commands to advertise with Autonegotiation ON for speeds 10Gbps, 5Gbps, 2.5Gbps, 1Gbps, 100Mbps and 10Mbps as ethtool speed command does not support.
 
-    ethtool -s <interface> advertise 0x1000 autoneg on --> changes the advertisement to 10Gbps
+    ethtool -s <interface> advertise 0x7000 autoneg on --> changes the advertisement to 10Gbps
     
-    ethtool -s <interface> advertise 0x1000000000000 autoneg on --> changes the advertisement to 5Gbps
+    ethtool -s <interface> advertise 0x1000000006000 autoneg on --> changes the advertisement to 5Gbps
 
-    ethtool -s <interface> advertise 0x800000000000 autoneg on --> changes the advertisement to 2.5Gbps
+    ethtool -s <interface> advertise 0x800000006000 autoneg on --> changes the advertisement to 2.5Gbps
 
-    ethtool -s <interface> advertise 0x020 autoneg on --> changes the advertisement to 1Gbps
+    ethtool -s <interface> advertise 0x6020 autoneg on --> changes the advertisement to 1Gbps
 
-    ethtool -s <interface> advertise 0x008 autoneg on --> changes the advertisement to 100Mbps
+    ethtool -s <interface> advertise 0x6008 autoneg on --> changes the advertisement to 100Mbps
 
-    ethtool -s <interface> advertise 0x002 autoneg on --> changes the advertisement 10Mbps
+    ethtool -s <interface> advertise 0x6002 autoneg on --> changes the advertisement 10Mbps
 
 2. Use the below command to insert the kernel module with specific modes for interfaces:
 	
@@ -128,7 +128,29 @@ Formula:
 	
 	XXX_L0s_ENTRY_DELAY range: 1-31
 	XXX_L1_ENTRY_DELAY: 1-1023
-   
+
+9. To check vlan feature status execute:
+	ethtool -k <interface> | grep vlan
+
+To enable/disable following vlan features execute:
+	(a) rx-vlan-filter:
+		ethtool -K <interface> rx-vlan-filter <on|off>
+	(b) rx-vlan-offload:
+		ethtool -K <interface> rxvlan <on|off>
+	(c) tx-vlan-offload:
+		ethtool -K <interface> txvlan <on|off>
+
+Use following to configure VLAN:
+	(a) modprobe 8021q
+	(b) vconfig add <interface> <vlanid>
+	(c) vconfig set_flag <interface>.<vlanid> 1 0
+	(d) ifconfig <interface>.<vlanid> <ip> netmask 255.255.255.0 broadcast <ip mask> up
+
+Default Configuraton:
+	(a) Rx vlan filter is disabled.
+	(b) Rx valn offload (vlan stripping) is disabled.
+	(c) Tx vlan offload is enabled.
+
 # Release Versions:
 
 ## TC956X_Host_Driver_20210326_V_01-00:
@@ -194,3 +216,16 @@ Formula:
 ## TC956X_Host_Driver_20210909_V_01-00-12:
 
 1. Reverted changes related to usage of Port-0 pci_dev for all DMA allocation/mapping for IPA path
+
+## TC956X_Host_Driver_20210914_V_01-00-13:
+
+1. Synchronization between ethtool vlan features "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter", and "tx-vlan-offload".
+3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+
+## TC956X_Host_Driver_20210923_V_01-00-14:
+
+1. Updated RX Queue Threshold limits for Activating and Deactivating Flow control 
+2. Filtering All pause frames by default.
+3. Capturing RBU status and updating to ethtool statistics for both S/W & IPA DMA channels

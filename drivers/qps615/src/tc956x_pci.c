@@ -58,6 +58,10 @@
  *  VERSION     : 01-00-11
  *  09 Sep 2021 : Reverted changes related to usage of Port-0 pci_dev for all DMA allocation/mapping for IPA path
  *  VERSION     : 01-00-12
+ *  14 Sep 2021 : 1. Version update
+ *  VERSION     : 01-00-13
+ *  23 Sep 2021 : 1. Version update
+ *  VERSION     : 01-00-14
  */
 
 #include <linux/clk-provider.h>
@@ -87,7 +91,7 @@ static unsigned int tc956x_speed = 3;
 static unsigned int tc956x_port0_interface = ENABLE_XFI_INTERFACE;
 static unsigned int tc956x_port1_interface = ENABLE_SGMII_INTERFACE;
 
-static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 1, 2};
+static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 1, 4};
 
 /*
  * This struct is used to associate PCI Function of MAC controller on a board,
@@ -1790,9 +1794,6 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 				     GFP_KERNEL);
 	if (!plat->dma_cfg)
 		return -ENOMEM;
-
-	pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
-	dev_info(&pdev->dev, "%s: qcdbg, disable ASPM done\n",__func__);
 
 	/* Enable pci device */
 	ret = pci_enable_device(pdev);
