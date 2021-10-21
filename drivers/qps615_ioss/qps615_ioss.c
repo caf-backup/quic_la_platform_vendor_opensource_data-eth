@@ -90,7 +90,7 @@ static int qps615_ioss_request_channel(struct ioss_channel *ch)
 				CH_DIR_RX : CH_DIR_TX;
 	struct channel_info *ring;
 
-	ioss_dev_log(ch->iface->idev, "%s, ring_size=%d, buf_size=%d, dir=%d",
+	ioss_dev_log(ioss_ch_dev(ch), "%s, ring_size=%d, buf_size=%d, dir=%d",
 		     __func__, ch->config.ring_size, ch->config.buff_size,
 			ch->direction);
 
@@ -114,7 +114,7 @@ static int qps615_ioss_request_channel(struct ioss_channel *ch)
 	ring = request_channel(&ipa_channel_info);
 
 	if (!ring) {
-		ioss_dev_err(ch->iface->idev, "Failed to request ring\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to request ring\n");
 		kzfree(ipa_channel_info.mem_ops);
 		return -ENOMEM;
 	}
@@ -126,7 +126,7 @@ static int qps615_ioss_request_channel(struct ioss_channel *ch)
 			ring->desc_addr.desc_dma_addrs_base, ring->desc_size*ring->desc_cnt);
 
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to add desc mem\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to add desc mem\n");
 		goto release_channel;
 	}
 
@@ -142,7 +142,7 @@ static int qps615_ioss_request_channel(struct ioss_channel *ch)
 				ring->buf_size);
 
 		if (rc) {
-			ioss_dev_err(ch->iface->idev, "Failed to add buff mem\n");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to add buff mem\n");
 			goto release_desc;
 		}
 	}
@@ -171,7 +171,7 @@ static int qps615_ioss_release_channel(struct ioss_channel *ch)
 	struct channel_info *ring = ch->private;
 	struct mem_ops *mem_ops = ring->mem_ops;
 
-	ioss_dev_log(ch->iface->idev, "Release ring %d\n", ring->channel_num);
+	ioss_dev_log(ioss_ch_dev(ch), "Release ring %d\n", ring->channel_num);
 
 	ioss_channel_del_desc_mem(ch, ring->desc_addr.desc_virt_addrs_base);
 
@@ -210,13 +210,13 @@ static int qps615_ioss_request_event(struct ioss_channel *ch)
 	int wdt;
 	struct channel_info *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pad, DATA: %llu\n",
+	ioss_dev_log(ioss_ch_dev(ch), "Request EVENT: paddr=%pad, DATA: %llu\n",
 		&ch->event.paddr, ch->event.data);
 
 	rc = request_event(ioss_ch_dev(ch)->net_dev,ring,
 						ch->event.paddr);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to request event\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to request event\n");
 		return rc;
 	}
 
@@ -225,11 +225,11 @@ static int qps615_ioss_request_event(struct ioss_channel *ch)
 	{
 		/* Each wdt unit is 2048 ns (~2 uS). */
 		wdt = ch->event.mod_usecs_max / 2;
-		ioss_dev_log(ch->iface->idev,"EVENT: wdt=%d\n", wdt);
+		ioss_dev_log(ioss_ch_dev(ch),"EVENT: wdt=%d\n", wdt);
 
 		rc = set_event_mod(ioss_ch_dev(ch)->net_dev,ring, wdt);
 		if (rc) {
-			ioss_dev_err(ch->iface->idev, "Failed to set interrupt moderation\n");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to set interrupt moderation\n");
 			release_event(ioss_ch_dev(ch)->net_dev,ring);
 			return rc;
 		}
@@ -242,7 +242,7 @@ static int qps615_ioss_release_event(struct ioss_channel *ch)
 {
 	struct channel_info *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Release EVENT: daddr=%pad, DATA: %llu\n",
+	ioss_dev_log(ioss_ch_dev(ch), "Release EVENT: daddr=%pad, DATA: %llu\n",
 		&ch->event.paddr, ch->event.data);
 
 	release_event(ioss_ch_dev(ch)->net_dev,ring);
@@ -337,18 +337,18 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 		return -EFAULT;
 
 	if (filters & IOSS_RXF_F_IP) {
-		ioss_dev_log(ch->iface->idev, "Enabling RSS filter\n");
+		ioss_dev_log(ioss_ch_dev(ch), "Enabling RSS filter\n");
 
 		clear_rx_filter(net_dev);
 
 		if (qps615_set_filter_info(&filter_info)) {
-			ioss_dev_err(ch->iface->idev,
+			ioss_dev_err(ioss_ch_dev(ch),
 					"Failed to set FRP filters");
 			return -EFAULT;
 		}
 
 		if (set_rx_filter(net_dev, &filter_info)) {
-			ioss_dev_err(ch->iface->idev, "Failed to install rss filter\n");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to install rss filter\n");
 			return -EFAULT;
 		}
 
@@ -356,7 +356,7 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 	}
 
 	if (filters) {
-		ioss_dev_err(ch->iface->idev, "Unsupported filters requested\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Unsupported filters requested\n");
 		clear_rx_filter(net_dev);
 		return -EFAULT;
 	}
@@ -376,10 +376,10 @@ static int __qps615_ioss_disable_filters(struct ioss_channel *ch)
 		return -EFAULT;
 
 	if (filters & IOSS_RXF_F_IP) {
-		ioss_dev_log(ch->iface->idev, "Disabling RSS filter\n");
+		ioss_dev_log(ioss_ch_dev(ch), "Disabling RSS filter\n");
 
 		if (clear_rx_filter(net_dev)) {
-			ioss_dev_err(ch->iface->idev, "Failed to reset rss filter\n");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to reset rss filter\n");
 			return -EFAULT;
 		}
 
@@ -397,13 +397,13 @@ static int qps615_ioss_enable_event(struct ioss_channel *ch)
 	rc = enable_event(ioss_ch_dev(ch)->net_dev, ring);
 	if (rc)
 	{
-		ioss_dev_err(ch->iface->idev, "Failed to enable event\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to enable event\n");
 		return rc;
 	}
 
 	rc = __qps615_ioss_enable_filters(ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to enable filters\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to enable filters\n");
 		disable_event(ioss_ch_dev(ch)->net_dev, ring);
 		return rc;
 	}
@@ -418,14 +418,14 @@ static int qps615_ioss_disable_event(struct ioss_channel *ch)
 
 	rc = __qps615_ioss_disable_filters(ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to disable filters\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to disable filters\n");
 		return rc;
 	}
 
 	rc = disable_event(ioss_ch_dev(ch)->net_dev, ring);
 	if (rc)
 	{
-		ioss_dev_err(ch->iface->idev, "Failed to disable event\n");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to disable event\n");
 		return rc;
 	}
 
