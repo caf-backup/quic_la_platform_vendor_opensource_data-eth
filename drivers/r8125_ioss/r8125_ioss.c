@@ -166,7 +166,7 @@ static int r8125_ioss_request_channel(struct ioss_channel *ch)
 				RTL8125_CH_DIR_RX : RTL8125_CH_DIR_TX;
 	struct rtl8125_ring *ring;
 
-	ioss_dev_log(ch->iface->idev, "%s, ring_size=%d, buf_size=%d, dir=%d",
+	ioss_dev_log(ioss_ch_dev(ch), "%s, ring_size=%d, buf_size=%d, dir=%d",
 			__func__, ch->config.ring_size, ch->config.buff_size,
 			direction);
 
@@ -174,14 +174,14 @@ static int r8125_ioss_request_channel(struct ioss_channel *ch)
 			ch->config.ring_size, ch->config.buff_size,
 			direction, RTL8125_CONTIG_BUFS, NULL);
 	if (!ring) {
-		ioss_dev_err(ch->iface->idev, "Failed to request ring");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to request ring");
 		return -EFAULT;
 	}
 
 	rc = ioss_channel_add_desc_mem(ch,
 			ring->desc_addr, ring->desc_daddr, ring->desc_size);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to add desc mem");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to add desc mem");
 		goto err_add_desc;
 	}
 
@@ -191,7 +191,7 @@ static int r8125_ioss_request_channel(struct ioss_channel *ch)
 		rc = ioss_channel_add_buff_mem(ch,
 				buff->addr, buff->dma_addr, buff->size);
 		if (rc) {
-			ioss_dev_err(ch->iface->idev, "Failed to add buff mem");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to add buff mem");
 			goto err_add_buff;
 		}
 	}
@@ -221,7 +221,7 @@ static int r8125_ioss_release_channel(struct ioss_channel *ch)
 	int i;
 	struct rtl8125_ring *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Release ring %d", ring->queue_num);
+	ioss_dev_log(ioss_ch_dev(ch), "Release ring %d", ring->queue_num);
 
 	ioss_channel_del_desc_mem(ch, ring->desc_addr);
 
@@ -258,7 +258,7 @@ static int r8125_ioss_request_event(struct ioss_channel *ch)
 	int mod;
 	struct rtl8125_ring *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pap, DATA: %llu",
+	ioss_dev_log(ioss_ch_dev(ch), "Request EVENT: paddr=%pap, DATA: %llu",
 		&ch->event.paddr, ch->event.data);
 
 	if (ioss_channel_map_event(ch))
@@ -267,18 +267,18 @@ static int r8125_ioss_request_event(struct ioss_channel *ch)
 	rc = rtl8125_request_event(ring, MSIX_event_type,
 					ch->event.daddr, ch->event.data);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to request event");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to request event");
 		goto err_req_event;
 	}
 
 	/* Each mod unit is 2048 ns (~2 uS). */
 	mod = ch->event.mod_usecs_max / 2;
 
-	ioss_dev_log(ch->iface->idev, "EVENT: mod=%d", mod);
+	ioss_dev_log(ioss_ch_dev(ch), "EVENT: mod=%d", mod);
 
 	rc = rtl8125_set_ring_intr_mod(ring, mod);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev,
+		ioss_dev_err(ioss_ch_dev(ch),
 			"Failed to set interrupt moderation");
 		goto err_intr_mod;
 	}
@@ -297,7 +297,7 @@ static int r8125_ioss_release_event(struct ioss_channel *ch)
 {
 	struct rtl8125_ring *ring = ch->private;
 
-	ioss_dev_log(ch->iface->idev, "Release EVENT: daddr=%pad, DATA: %llu",
+	ioss_dev_log(ioss_ch_dev(ch), "Release EVENT: daddr=%pad, DATA: %llu",
 			&ch->event.daddr, ch->event.data);
 
 	rtl8125_release_event(ring);
@@ -312,7 +312,7 @@ static int __r8125_ioss_enable_filters(struct ioss_channel *ch)
 	struct net_device *net_dev = ioss_ch_dev(ch)->net_dev;
 	enum ioss_filter_types filters = ch->filter_types;
 
-	ioss_dev_log(ch->iface->idev, "Enabling filters %d", filters);
+	ioss_dev_log(ioss_ch_dev(ch), "Enabling filters %d", filters);
 
 	if (!filters)
 		return 0;
@@ -321,10 +321,10 @@ static int __r8125_ioss_enable_filters(struct ioss_channel *ch)
 		return -EFAULT;
 
 	if (filters & IOSS_RXF_F_IP) {
-		ioss_dev_log(ch->iface->idev, "Enabling RSS filter");
+		ioss_dev_log(ioss_ch_dev(ch), "Enabling RSS filter");
 
 		if (rtl8125_rss_redirect(net_dev, 0, ring)) {
-			ioss_dev_err(ch->iface->idev,
+			ioss_dev_err(ioss_ch_dev(ch),
 					"Failed to install rss filter");
 			return -EFAULT;
 		}
@@ -333,7 +333,7 @@ static int __r8125_ioss_enable_filters(struct ioss_channel *ch)
 	}
 
 	if (filters) {
-		ioss_dev_err(ch->iface->idev, "Unsupported filters requested");
+		ioss_dev_err(ioss_ch_dev(ch), "Unsupported filters requested");
 		rtl8125_rss_reset(net_dev);
 		return -EFAULT;
 	}
@@ -346,7 +346,7 @@ static int __r8125_ioss_disable_filters(struct ioss_channel *ch)
 	struct net_device *net_dev = ioss_ch_dev(ch)->net_dev;
 	enum ioss_filter_types filters = ch->filter_types;
 
-	ioss_dev_log(ch->iface->idev, "Disabling filters %d", filters);
+	ioss_dev_log(ioss_ch_dev(ch), "Disabling filters %d", filters);
 
 	if (!filters)
 		return 0;
@@ -355,10 +355,10 @@ static int __r8125_ioss_disable_filters(struct ioss_channel *ch)
 		return -EFAULT;
 
 	if (filters & IOSS_RXF_F_IP) {
-		ioss_dev_log(ch->iface->idev, "Disabling RSS filter");
+		ioss_dev_log(ioss_ch_dev(ch), "Disabling RSS filter");
 
 		if (rtl8125_rss_reset(net_dev)) {
-			ioss_dev_err(ch->iface->idev, "Failed to reset rss filter");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to reset rss filter");
 			return -EFAULT;
 		}
 
@@ -375,13 +375,13 @@ static int r8125_ioss_enable_event(struct ioss_channel *ch)
 
 	rc = rtl8125_enable_event(ring);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to enable event");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to enable event");
 		return rc;
 	}
 
 	rc = __r8125_ioss_enable_filters(ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to enable filters");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to enable filters");
 		rtl8125_disable_event(ring);
 		return rc;
 	}
@@ -396,13 +396,13 @@ static int r8125_ioss_disable_event(struct ioss_channel *ch)
 
 	rc = __r8125_ioss_disable_filters(ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to disable filters");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to disable filters");
 		return rc;
 	}
 
 	rc = rtl8125_disable_event(ring);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to disable event");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to disable event");
 		return rc;
 	}
 
@@ -463,7 +463,7 @@ static int r8125_ioss_channel_statistics(struct ioss_channel *ch,
 static void get_ch_mod(struct ioss_channel *ch,
 		       struct ioss_channel_status *status)
 {
-	struct rtl8125_private *tp = to_tp(ch->iface->idev);
+	struct rtl8125_private *tp = to_tp(ioss_ch_dev(ch));
 
 	u16 ch_mod_reg = 0;
 	u16 modc_unit = 0;
@@ -485,7 +485,7 @@ static void get_ch_mod(struct ioss_channel *ch,
 static void get_ch_enabled(struct ioss_channel *ch,
 			   struct ioss_channel_status *status)
 {
-	struct rtl8125_private *tp = to_tp(ch->iface->idev);
+	struct rtl8125_private *tp = to_tp(ioss_ch_dev(ch));
 	struct rtl8125_ring *ring = ch->private;
 
 	if (ch->direction == IOSS_CH_DIR_RX)
@@ -520,7 +520,7 @@ static void get_ch_head_tail_ptr(struct ioss_channel *ch,
 				 struct ioss_channel_status *status)
 {
 	if (ch->direction == IOSS_CH_DIR_TX) {
-		struct rtl8125_private *tp = to_tp(ch->iface->idev);
+		struct rtl8125_private *tp = to_tp(ioss_ch_dev(ch));
 
 		status->head_ptr = RTL_R16(tp, (SW_TAIL_PTR0_8125 + (ch->id * 4)));
 		status->tail_ptr = RTL_R16(tp, (HW_CLO_PTR0_8125 + (ch->id * 4)));
