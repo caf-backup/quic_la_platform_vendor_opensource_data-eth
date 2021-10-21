@@ -46,55 +46,47 @@ static int get_idev_statistics(struct ioss_device *idev,
 		struct ioss_device_stats *stats)
 {
 	int rc;
-	struct ioss_interface *iface;
+	struct ioss_channel *ch;
+	struct ioss_interface *iface = &idev->interface;
 	struct rtnl_link_stats64 netdev_stats;
 
 	memset(stats, 0, sizeof(struct ioss_device_stats));
 
+	/* Fetch EMAC level statistics */
 	rc = ioss_dev_op(idev, get_device_statistics, idev, stats);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to get device statistics");
 		return -EFAULT;
 	}
 
-	memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
+	/* Aggregate channel level stats */
+	ioss_for_each_channel(ch, iface) {
+		struct ioss_channel_stats ch_stats;
 
-	ioss_for_each_iface(iface, idev) {
-		struct rtnl_link_stats64 ndev_stat;
-		struct ioss_channel *ch;
+		memset(&ch_stats, 0, sizeof(struct ioss_channel_stats));
 
-		ioss_for_each_channel(ch, iface) {
-			struct ioss_channel_stats ch_stats;
-
-			memset(&ch_stats, 0, sizeof(struct ioss_channel_stats));
-
-			if (ioss_dev_op(idev, get_channel_statistics, ch, &ch_stats)) {
-				ioss_dev_err(idev, "Failed to get channel statistics");
-				return -EFAULT;
-			}
-
-			if (ch->direction == IOSS_CH_DIR_RX) {
-				stats->hwp_rx_errors += ch_stats.overflow_error +
-						ch_stats.underflow_error;
-			}
-
-			if (ch->direction == IOSS_CH_DIR_TX) {
-				stats->hwp_tx_errors += ch_stats.overflow_error +
-						ch_stats.underflow_error;
-			}
+		if (ioss_dev_op(idev, get_channel_statistics, ch, &ch_stats)) {
+			ioss_dev_err(idev, "Failed to get channel statistics");
+			return -EFAULT;
 		}
 
-		dev_get_stats(ioss_iface_to_netdev(iface), &ndev_stat);
+		if (ch->direction == IOSS_CH_DIR_RX) {
+			stats->hwp_rx_errors += ch_stats.overflow_error +
+					ch_stats.underflow_error;
+		}
 
-		netdev_stats.rx_packets += ndev_stat.rx_packets;
-		netdev_stats.tx_packets += ndev_stat.tx_packets;
-		netdev_stats.rx_errors += ndev_stat.rx_errors;
-		netdev_stats.tx_errors += ndev_stat.tx_errors;
-		netdev_stats.rx_dropped += ndev_stat.rx_dropped;
-
-		stats->exp_rx_packets += iface->exception_stats.rx_packets;
-		stats->exp_rx_bytes += iface->exception_stats.rx_bytes;
+		if (ch->direction == IOSS_CH_DIR_TX) {
+			stats->hwp_tx_errors += ch_stats.overflow_error +
+					ch_stats.underflow_error;
+		}
 	}
+
+	/* Fetch Linux netdev stats */
+	memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
+	dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
+
+	stats->exp_rx_packets += iface->exception_stats.rx_packets;
+	stats->exp_rx_bytes += iface->exception_stats.rx_bytes;
 
 	if (stats->emac_rx_packets)
 		stats->hwp_rx_packets = stats->emac_rx_packets +

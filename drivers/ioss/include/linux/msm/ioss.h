@@ -27,9 +27,11 @@
  *   4      - Added head and tail pointer addresses to ioss_channel
  *   5      - Added ioss_channel_{map,unmap}_event() API as we moved DMA mapping
  *            of event doorbell address logic to glue drivers
+ *   6      - Change one-to-many mapping to one-to-one mapping from ioss_device to
+ *            ioss_interface
  */
 
-#define IOSS_API_VER 5
+#define IOSS_API_VER 6
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -156,106 +158,10 @@ struct ioss {
 };
 
 struct ioss_driver;
-
-struct ioss_device {
-	struct ioss *root;
-	struct device dev;
-	struct net_device *net_dev; /* Real net dev */
-	struct ethtool_drvinfo drv_info;
-
-	struct dentry *debugfs;
-	struct list_head interfaces;
-	struct mutex pm_lock;
-	refcount_t pm_refcnt;
-	const struct dev_pm_ops *pm_ops_real;
-
-	struct notifier_block panic_nb;
-
-	struct ethtool_wolinfo wol;
-
-	void *private;
-};
-
-#define to_ioss_device(device) \
-	container_of(device, struct ioss_device, dev)
-
-#define ioss_idev_to_real(idev) (idev->dev.parent)
-
-static inline int __match_idev(struct device *dev, void *data)
-{
-	return dev->type == &ioss_idev_type;
-}
-
-static inline struct ioss_device *ioss_real_to_idev(struct device *real_dev)
-{
-	struct device *idev_dev =
-			device_find_child(real_dev, NULL, __match_idev);
-
-	return idev_dev ? to_ioss_device(idev_dev) : NULL;
-}
-
-static inline const char *__ioss_dev_name(struct ioss_device *idev)
-{
-	if (!idev)
-		return NULL;
-
-	if (idev->net_dev)
-		return idev->net_dev->name;
-
-	return dev_name(idev->dev.parent);
-}
-
-static inline const char *ioss_dev_name(struct ioss_device *idev)
-{
-	const char *name = __ioss_dev_name(idev);
-
-	if (!name)
-		name = "<noname>";
-
-	return name;
-}
-
-#define ioss_dev_err(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_err(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_bug(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_bug(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_dbg(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_dbg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_log(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_msg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
-
-#define ioss_dev_cfg(idev, fmt, args...) \
-	do { \
-		struct ioss_device *__idev = (idev); \
-		struct device *dev = __idev ? &__idev->dev : NULL; \
-		ioss_log_cfg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
-	} while (0)
+struct ioss_device;
 
 struct ioss_interface {
-	struct list_head node;
-
 	struct device dev;
-	const char *name;
-	struct ioss_device *idev;
 	enum ioss_interface_state state;
 
 	u32 instance_id;
@@ -286,7 +192,9 @@ struct ioss_interface {
 #define to_ioss_interface(device) \
 	container_of(device, struct ioss_interface, dev)
 
-#define ioss_iface_dev(iface) (iface->idev)
+#define ioss_iface_dev(iface) \
+	container_of(iface, struct ioss_device, interface)
+
 #define ioss_iface_to_netdev(iface) \
 		(iface->dev.parent ? to_net_dev(iface->dev.parent) : NULL)
 
@@ -303,9 +211,6 @@ static inline struct ioss_interface *ioss_netdev_to_iface(
 
 	return iface_dev ? to_ioss_interface(iface_dev) : NULL;
 }
-
-#define ioss_for_each_iface(_iface, idev) \
-	list_for_each_entry(_iface, &idev->interfaces, node)
 
 #define ioss_nb_to_iface(nb) \
 	container_of(nb, struct ioss_interface, net_dev_nb)
@@ -415,6 +320,99 @@ struct ioss_channel {
 	void *ioss_priv;
 };
 
+struct ioss_device {
+	struct ioss *root;
+	struct device dev;
+	struct net_device *net_dev; /* Real net dev */
+	struct ethtool_drvinfo drv_info;
+
+	struct dentry *debugfs;
+	struct ioss_interface interface;
+	struct mutex pm_lock;
+	refcount_t pm_refcnt;
+	const struct dev_pm_ops *pm_ops_real;
+
+	struct notifier_block panic_nb;
+
+	struct ethtool_wolinfo wol;
+
+	void *private;
+};
+
+#define to_ioss_device(device) \
+	container_of(device, struct ioss_device, dev)
+
+#define ioss_idev_to_real(idev) (idev->dev.parent)
+
+static inline int __match_idev(struct device *dev, void *data)
+{
+	return dev->type == &ioss_idev_type;
+}
+
+static inline struct ioss_device *ioss_real_to_idev(struct device *real_dev)
+{
+	struct device *idev_dev =
+			device_find_child(real_dev, NULL, __match_idev);
+
+	return idev_dev ? to_ioss_device(idev_dev) : NULL;
+}
+
+static inline const char *__ioss_dev_name(struct ioss_device *idev)
+{
+	if (!idev)
+		return NULL;
+
+	if (idev->net_dev)
+		return idev->net_dev->name;
+
+	return dev_name(idev->dev.parent);
+}
+
+static inline const char *ioss_dev_name(struct ioss_device *idev)
+{
+	const char *name = __ioss_dev_name(idev);
+
+	if (!name)
+		name = "<noname>";
+
+	return name;
+}
+
+#define ioss_dev_err(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_err(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_bug(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_bug(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_dbg(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_dbg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_log(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_msg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+#define ioss_dev_cfg(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_log_cfg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
 struct ioss_device_stats {
 	u64 hwp_rx_packets;
 	u64 hwp_tx_packets;
@@ -467,7 +465,7 @@ struct ioss_channel_status {
 	u64 tail_ptr;
 };
 
-#define ioss_ch_dev(ch) (ch->iface->idev)
+#define ioss_ch_dev(ch) ioss_iface_dev(ch->iface)
 
 #define ioss_for_each_channel(ch, iface) \
 	list_for_each_entry(ch, &iface->channels, node)
