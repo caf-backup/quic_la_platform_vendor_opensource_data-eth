@@ -48,6 +48,11 @@
  *  VERSION     : 01-00-14
  *  14 Oct 2021 : 1. Moving common Macros to common header file 
  *  VERSION     : 01-00-16
+ *  19 Oct 2021 : 1. Adding M3 SRAM Debug counters to ethtool statistics
+ *                2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+ *  VERSION     : 01-00-17
+ *  21 Oct 2021 : 1. Added support for GPIO configuration API
+ *  VERSION     : 01-00-18
  */
 
 #ifndef __COMMON_H__
@@ -720,9 +725,43 @@ enum packets_types {
 #define NFUNCEN6_OFFSET		(0x1530)
 #define NFUNCEN7_OFFSET		(0x153C)
 
+#define NFUNCEN_FUNC0		(0)
+#define NFUNCEN4_GPIO_00	GENMASK(3, 0)
+#define NFUNCEN4_GPIO_00_SHIFT	(0)
+#define NFUNCEN4_GPIO_01	GENMASK(7, 4)
+#define NFUNCEN4_GPIO_01_SHIFT	(4)
+#define NFUNCEN4_GPIO_02	GENMASK(11, 8)
+#define NFUNCEN4_GPIO_02_SHIFT	(8)
+#define NFUNCEN4_GPIO_03	GENMASK(15, 12)
+#define NFUNCEN4_GPIO_03_SHIFT	(12)
+#define NFUNCEN4_GPIO_04	GENMASK(19, 16)
+#define NFUNCEN4_GPIO_04_SHIFT	(16)
+#define NFUNCEN4_GPIO_05	GENMASK(23, 20)
+#define NFUNCEN4_GPIO_05_SHIFT	(20)
+#define NFUNCEN4_GPIO_06	GENMASK(27, 24)
+#define NFUNCEN4_GPIO_06_SHIFT	(24)
+#define NFUNCEN5_GPIO_10	GENMASK(3, 0)
+#define NFUNCEN5_GPIO_10_SHIFT	(0)
+#define NFUNCEN5_GPIO_11	GENMASK(7, 4)
+#define NFUNCEN5_GPIO_11_SHIFT	(4)
+#define NFUNCEN6_GPIO_12	GENMASK(19, 16)
+#define NFUNCEN6_GPIO_12_SHIFT	(16)
+
 #define NIOCFG1_OFFSET		(0x1614)
 #define NIOCFG7_OFFSET		(0x163C)
 #define NIOEN7_OFFSET		(0x173C)
+
+#define GPIO_00			(0)
+#define GPIO_01			(1)
+#define GPIO_02			(2)
+#define GPIO_03			(3)
+#define GPIO_04			(4)
+#define GPIO_05			(5)
+#define GPIO_06			(6)
+#define GPIO_10			(10)
+#define GPIO_11			(11)
+#define GPIO_12			(12)
+#define GPIO_32			(32)
 
 /* PCIe registers */
 #define PCIE_OFFSET				(0x20000)
@@ -1223,6 +1262,33 @@ struct tc956xmac_extra_stats {
 	u64 xpcs_intr_n;
 	u64 phy_intr_n;
 	u64 sw_msi_n;
+	/*MTL Debug counters */
+	u64 mtl_tx_underflow[MTL_MAX_TX_QUEUES];
+	u64 mtl_rx_miss_pkt_cnt[MTL_MAX_RX_QUEUES];
+	u64 mtl_rx_overflow_pkt_cnt[MTL_MAX_RX_QUEUES];
+	u64 rxch_watchdog_timer[TC956XMAC_CH_MAX];
+
+	/*m3 SRAM debug counters */
+	u64 m3_debug_cnt0;
+	u64 m3_debug_cnt1;
+	u64 m3_debug_cnt2;
+	u64 m3_debug_cnt3;
+	u64 m3_debug_cnt4;
+	u64 m3_debug_cnt5;
+	u64 m3_debug_cnt6;
+	u64 m3_debug_cnt7;
+	u64 m3_debug_cnt8;
+	u64 m3_debug_cnt9;
+	u64 m3_debug_cnt10;
+	u64 m3_watchdog_exp_cnt;
+	u64 m3_watchdog_monitor_cnt;
+	u64 m3_debug_cnt13;
+	u64 m3_debug_cnt14;
+	u64 m3_systick_cnt_upper_value;
+	u64 m3_systick_cnt_lower_value;
+	u64 m3_tx_timeout_port0;
+	u64 m3_tx_timeout_port1;
+	u64 m3_debug_cnt19;
 
 };
 
