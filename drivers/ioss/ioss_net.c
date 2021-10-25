@@ -47,8 +47,7 @@ static bool net_device_belongs_to(struct net_device *net_dev,
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush)
 {
-	if (queue_work(iface->idev->root->wq, &iface->refresh))
-		__pm_stay_awake(iface->refresh_ws);
+	queue_work(iface->idev->root->wq, &iface->refresh);
 
 	if (flush)
 		flush_work(&iface->refresh);
@@ -706,8 +705,6 @@ static void ioss_refresh_work(struct work_struct *work)
 
 	ioss_dev_log(idev,
 		"Interface %s state is %s", iface->name, if_st_s(iface));
-
-	__pm_relax(iface->refresh_ws);
 }
 
 static void ioss_net_active_work(struct work_struct *work)
@@ -729,12 +726,6 @@ int ioss_net_watch_device(struct ioss_device *idev)
 	ioss_for_each_iface(iface, idev) {
 		INIT_WORK(&iface->refresh, ioss_refresh_work);
 		iface->net_dev_nb.notifier_call = ioss_net_device_event;
-
-		iface->refresh_ws = wakeup_source_register(&idev->dev, iface->name);
-		if (!iface->refresh_ws) {
-			ioss_dev_err(idev, "Failed to register refresh wake source");
-			goto err_register;
-		}
 
 		INIT_DELAYED_WORK(&iface->check_active, ioss_net_active_work);
 
@@ -762,8 +753,6 @@ err_register:
 		(void) unregister_netdevice_notifier(&iface->net_dev_nb);
 
 		flush_work(&iface->refresh);
-		wakeup_source_unregister(iface->refresh_ws);
-		iface->refresh_ws = NULL;
 
 		cancel_delayed_work_sync(&iface->check_active);
 		wakeup_source_unregister(iface->active_ws);
@@ -792,8 +781,6 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 		}
 
 		flush_work(&iface->refresh);
-		wakeup_source_unregister(iface->refresh_ws);
-		iface->refresh_ws = NULL;
 
 		cancel_delayed_work_sync(&iface->check_active);
 		wakeup_source_unregister(iface->active_ws);

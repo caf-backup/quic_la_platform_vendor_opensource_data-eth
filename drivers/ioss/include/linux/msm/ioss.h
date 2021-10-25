@@ -260,7 +260,6 @@ struct ioss_interface {
 
 	struct notifier_block net_dev_nb;
 	struct work_struct refresh;
-	struct wakeup_source *refresh_ws;
 	struct list_head channels;
 
 	void *ioss_priv;
