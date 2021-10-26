@@ -432,6 +432,121 @@ static int qps615_ioss_disable_event(struct ioss_channel *ch)
 	return 0;
 }
 
+static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data, int scount)
+{
+	int i = 0;
+	const char (*strings)[ETH_GSTRING_LEN] = (typeof(strings))strings_data;
+
+	/* iterate through strings[], find matchging index */
+	for (i = 0; i < scount; i++) {
+		if (strcmp(name, strings[i]) == 0)
+			return data[i];
+	}
+
+	return 0;
+}
+
+static int qps615_ioss_device_statistics(struct ioss_device *idev,
+		struct ioss_device_stats *statistics)
+{
+	u64 *data;
+	u8 *strings;
+	int strings_count = 0;
+	struct ethtool_stats stats;
+	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+
+	if (ops == NULL || ops->get_sset_count == NULL ||
+		ops->get_ethtool_stats == NULL || ops->get_strings == NULL)
+		return -EOPNOTSUPP;
+
+	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
+
+	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	strings = kcalloc(strings_count, ETH_GSTRING_LEN, GFP_KERNEL);
+	if (!strings) {
+		kfree(data);
+		return -ENOMEM;
+	}
+
+	memset(&stats, 0, sizeof(stats));
+	stats.n_stats = strings_count;
+
+	rtnl_lock();
+	ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	rtnl_unlock();
+
+	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
+
+	statistics->emac_rx_packets =
+		__get_stats_data("mmc_rx_framecount_gb", data, strings, strings_count);
+	statistics->emac_tx_packets =
+		__get_stats_data("mmc_tx_framecount_gb", data, strings, strings_count);
+	statistics->emac_rx_bytes =
+		__get_stats_data("mmc_rx_octetcount_gb", data, strings, strings_count);
+	statistics->emac_tx_bytes =
+		__get_stats_data("mmc_tx_octetcount_gb", data, strings, strings_count);
+	statistics->emac_rx_drops =
+		__get_stats_data("mmc_rx_fifo_overflow", data, strings, strings_count);
+	statistics->emac_rx_pause_frames =
+		__get_stats_data("mmc_rx_pause_frames", data, strings, strings_count);
+	statistics->emac_tx_pause_frames =
+		__get_stats_data("mmc_tx_pause_frame", data, strings, strings_count);
+
+	kfree(data);
+	kfree(strings);
+
+	return 0;
+}
+
+static int qps615_ioss_channel_statistics(struct ioss_channel *ch,
+		struct ioss_channel_stats *statistics)
+{
+	return 0;
+}
+
+static int qps615_ioss_channel_status(struct ioss_channel *ch, struct ioss_channel_status *status)
+{
+	u64 *data;
+	int strings_count = 0;
+	struct ethtool_stats stats;
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+	struct tc956xmac_priv *priv = netdev_priv(idev->net_dev);
+
+	if (ops == NULL || ops->get_sset_count == NULL ||
+		ops->get_ethtool_stats == NULL || ops->get_strings == NULL)
+		return -EOPNOTSUPP;
+
+	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
+
+	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	memset(&stats, 0, sizeof(stats));
+	stats.n_stats = strings_count;
+
+	rtnl_lock();
+	ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	rtnl_unlock();
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		status->ring_size = priv->xstats.rxch_desc_ring_len[ch->id];
+		status->head_ptr = priv->xstats.rxch_desc_list_laddr[ch->id];
+		status->tail_ptr = priv->xstats.rxch_desc_tail[ch->id];
+	} else {
+		status->ring_size = priv->xstats.txch_desc_ring_len[ch->id];
+		status->head_ptr = priv->xstats.txch_desc_list_laddr[ch->id];
+		status->tail_ptr = priv->xstats.txch_desc_tail[ch->id];
+	}
+	kfree(data);
+
+	return 0;
+}
+
 static struct ioss_driver_ops qps615_ioss_ops = {
 	.open_device = qps615_ioss_open_device,
 	.close_device = qps615_ioss_close_device,
@@ -447,6 +562,10 @@ static struct ioss_driver_ops qps615_ioss_ops = {
 
 	.enable_event = qps615_ioss_enable_event,
 	.disable_event = qps615_ioss_disable_event,
+
+	.get_device_statistics = qps615_ioss_device_statistics,
+	.get_channel_statistics = qps615_ioss_channel_statistics,
+	.get_channel_status = qps615_ioss_channel_status,
 };
 
 bool qps615_driver_match(struct device *dev)
