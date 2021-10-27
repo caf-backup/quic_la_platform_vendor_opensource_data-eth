@@ -162,7 +162,7 @@ static int aqc_ioss_request_channel(struct ioss_channel *ch)
 	enum atl_fwd_ring_flags ring_flags = 0;
 	struct atl_fwd_mem_ops *mem_ops = NULL;
 
-	ioss_dev_log(ch->iface->idev, "%s, ring_size=%d, buf_size=%d, dir=%d",
+	ioss_dev_log(ioss_ch_dev(ch), "%s, ring_size=%d, buf_size=%d, dir=%d",
 		     __func__, ch->config.ring_size, ch->config.buff_size,
 			ch->direction);
 
@@ -185,7 +185,7 @@ static int aqc_ioss_request_channel(struct ioss_channel *ch)
 		ring_flags |= ATL_FWR_TX;
 		break;
 	default:
-		ioss_dev_err(ch->iface->idev, "Unsupported direction %d", ch->direction);
+		ioss_dev_err(ioss_ch_dev(ch), "Unsupported direction %d", ch->direction);
 		kzfree(mem_ops);
 		return -EINVAL;
 	}
@@ -196,14 +196,14 @@ static int aqc_ioss_request_channel(struct ioss_channel *ch)
 	ring = atl_fwd_request_ring(ioss_ch_dev(ch)->net_dev, ring_flags,
 			ch->config.ring_size, ch->config.buff_size, 1, mem_ops);
 	if (!ring) {
-		ioss_dev_err(ch->iface->idev, "Failed to request ring");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to request ring");
 		goto err_ring;
 	}
 
 	rc = ioss_channel_add_desc_mem(ch,
 			ring->hw.descs, ring->hw.daddr, (desc_size * ring->hw.size));
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to add desc mem");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to add desc mem");
 		goto err_add_desc;
 	}
 
@@ -215,7 +215,7 @@ static int aqc_ioss_request_channel(struct ioss_channel *ch)
 		rc = ioss_channel_add_buff_mem(ch,
 				addr, daddr, ring->buf_size);
 		if (rc) {
-			ioss_dev_err(ch->iface->idev, "Failed to add buff mem");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to add buff mem");
 			goto err_add_buff;
 		}
 	}
@@ -250,7 +250,7 @@ static int aqc_ioss_release_channel(struct ioss_channel *ch)
 	struct atl_fwd_ring *ring = ch->private;
 	struct atl_fwd_mem_ops *mem_ops = ring->mem_ops;
 
-	ioss_dev_dbg(ch->iface->idev, "Release ring %d", ring->idx);
+	ioss_dev_dbg(ioss_ch_dev(ch), "Release ring %d", ring->idx);
 
 	for (i = 0; i < ring->hw.size; i++) {
 		void *vaddr = (void *)ring->bufs->vaddr_vec;
@@ -293,7 +293,7 @@ static int aqc_ioss_request_event(struct ioss_channel *ch)
 	struct atl_fwd_event *event = NULL;
 	struct atl_fwd_event atl_event = {0};
 
-	ioss_dev_log(ch->iface->idev, "Request EVENT: paddr=%pap, DATA: %llu",
+	ioss_dev_log(ioss_ch_dev(ch), "Request EVENT: paddr=%pap, DATA: %llu",
 		&ch->event.paddr, ch->event.data);
 
 	if (ioss_channel_map_event(ch))
@@ -316,14 +316,14 @@ static int aqc_ioss_request_event(struct ioss_channel *ch)
 
 	rc = atl_fwd_request_event(event);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to request event");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to request event");
 		goto err_req_event;
 	}
 
 	if (ch->direction == IOSS_CH_DIR_RX) {
 		if (atl_fwd_set_ring_intr_mod(ring, ch->event.mod_usecs_min,
 					      ch->event.mod_usecs_max)) {
-			ioss_dev_err(ch->iface->idev, "Failed to set interrupt moderation");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to set interrupt moderation");
 			goto err_intr_mod;
 		}
 	}
@@ -345,7 +345,7 @@ static int aqc_ioss_release_event(struct ioss_channel *ch)
 	struct atl_fwd_ring *ring = ch->private;
 	struct atl_fwd_event *event = ring->evt;
 
-	ioss_dev_log(ch->iface->idev, "Release EVENT: daddr=%pad, DATA: %llu",
+	ioss_dev_log(ioss_ch_dev(ch), "Release EVENT: daddr=%pad, DATA: %llu",
 		&ch->event.daddr, ch->event.data);
 
 	atl_fwd_release_event(event);
@@ -378,12 +378,12 @@ static int __config_catchall_filter(struct ioss_channel *ch, bool insert)
 	struct net_device *net_dev = ioss_ch_dev(ch)->net_dev;
 
 	if (!net_dev) {
-		ioss_dev_err(ch->iface->idev, "Net device information is missing");
+		ioss_dev_err(ioss_ch_dev(ch), "Net device information is missing");
 		return -EFAULT;
 	}
 
 	if (!net_dev->ethtool_ops || !net_dev->ethtool_ops->set_rxnfc) {
-		ioss_dev_err(ch->iface->idev, "set_rxnfc is not supported by the network driver");
+		ioss_dev_err(ioss_ch_dev(ch), "set_rxnfc is not supported by the network driver");
 		return -EFAULT;
 	}
 
@@ -402,9 +402,9 @@ static int aqc_ioss_netdev_rxflow_set(struct ioss_channel *ch)
 	int rc = __config_catchall_filter(ch, true);
 
 	if (rc)
-		ioss_dev_err(ch->iface->idev, "Failed to install catch-all filter");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to install catch-all filter");
 	else
-		ioss_dev_dbg(ch->iface->idev, "Installed Rx catch-all filter");
+		ioss_dev_dbg(ioss_ch_dev(ch), "Installed Rx catch-all filter");
 
 	return rc;
 }
@@ -414,9 +414,9 @@ static int aqc_ioss_netdev_rxflow_reset(struct ioss_channel *ch)
 	int rc = __config_catchall_filter(ch, false);
 
 	if (rc)
-		ioss_dev_err(ch->iface->idev, "Failed to remove catch-all filter");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to remove catch-all filter");
 	else
-		ioss_dev_dbg(ch->iface->idev, "Removed Rx catch-all filter");
+		ioss_dev_dbg(ioss_ch_dev(ch), "Removed Rx catch-all filter");
 
 	return rc;
 }
@@ -425,7 +425,7 @@ static int aqc_ioss_enable_filters(struct ioss_channel *ch)
 {
 	enum ioss_filter_types filters = ch->filter_types;
 
-	ioss_dev_log(ch->iface->idev, "Enabling filters %d and IOSS_RXF_BE %d\n",
+	ioss_dev_log(ioss_ch_dev(ch), "Enabling filters %d and IOSS_RXF_BE %d\n",
 		     filters, IOSS_RXF_F_BE);
 
 	if (!filters)
@@ -435,10 +435,10 @@ static int aqc_ioss_enable_filters(struct ioss_channel *ch)
 		return -EFAULT;
 
 	if (filters & IOSS_RXF_F_BE) {
-		ioss_dev_dbg(ch->iface->idev, "Enabling catch-all filter");
+		ioss_dev_dbg(ioss_ch_dev(ch), "Enabling catch-all filter");
 
 		if (aqc_ioss_netdev_rxflow_set(ch)) {
-			ioss_dev_err(ch->iface->idev, "Failed to install catch-all filter");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to install catch-all filter");
 			return -EFAULT;
 		}
 
@@ -446,7 +446,7 @@ static int aqc_ioss_enable_filters(struct ioss_channel *ch)
 	}
 
 	if (filters) {
-		ioss_dev_err(ch->iface->idev, "Unsupported filters requested");
+		ioss_dev_err(ioss_ch_dev(ch), "Unsupported filters requested");
 		aqc_ioss_netdev_rxflow_reset(ch);
 		return -EFAULT;
 	}
@@ -458,7 +458,7 @@ static int aqc_ioss_disable_filters(struct ioss_channel *ch)
 {
 	enum ioss_filter_types filters = ch->filter_types;
 
-	ioss_dev_log(ch->iface->idev, "Disabling filters %d\n", filters);
+	ioss_dev_log(ioss_ch_dev(ch), "Disabling filters %d\n", filters);
 
 	if (!filters)
 		return 0;
@@ -467,10 +467,10 @@ static int aqc_ioss_disable_filters(struct ioss_channel *ch)
 		return -EFAULT;
 
 	if (filters & IOSS_RXF_F_BE) {
-		ioss_dev_dbg(ch->iface->idev, "Disabling catch-all filter");
+		ioss_dev_dbg(ioss_ch_dev(ch), "Disabling catch-all filter");
 
 		if (aqc_ioss_netdev_rxflow_reset(ch)) {
-			ioss_dev_err(ch->iface->idev, "Failed to reset catch-all filter");
+			ioss_dev_err(ioss_ch_dev(ch), "Failed to reset catch-all filter");
 			return -EFAULT;
 		}
 
@@ -487,13 +487,13 @@ static int aqc_ioss_enable_event(struct ioss_channel *ch)
 
 	rc = atl_fwd_enable_event(ring->evt);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to enable event");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to enable event");
 		return rc;
 	}
 
 	rc = aqc_ioss_enable_filters(ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to enable filters");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to enable filters");
 		atl_fwd_disable_event(ring->evt);
 		return rc;
 	}
@@ -508,13 +508,13 @@ static int aqc_ioss_disable_event(struct ioss_channel *ch)
 
 	rc = aqc_ioss_disable_filters(ch);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to disable filters");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to disable filters");
 		return rc;
 	}
 
 	rc = atl_fwd_disable_event(ring->evt);
 	if (rc) {
-		ioss_dev_err(ch->iface->idev, "Failed to disable event");
+		ioss_dev_err(ioss_ch_dev(ch), "Failed to disable event");
 		return rc;
 	}
 
