@@ -1781,7 +1781,7 @@ static void tc956xmac_mac_link_down(struct phylink_config *config,
 {
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 
-	tc956xmac_mac_set(priv, priv->ioaddr, false);
+	/* Do not set MAC block to disable state if IPA is enabled*/
 #ifdef EEE
 	priv->eee_active = false;
 	priv->eee_enabled = tc956xmac_eee_init(priv);
