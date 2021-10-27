@@ -147,12 +147,6 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto err_pinctrl_select_state;
 	}
 
-	ret = irq_set_irq_wake(qpriv->wol_irq, 1);
-	if (unlikely(ret)) {
-		dev_err(priv->device, "Failed to set WOL IRQ %d as wake up capable with error %d\n", res->wol_irq, ret);
-		goto err_set_irq_wake;
-	}
-
 	ret = tc956x_phy_power_on(priv);
 	if (ret) {
 		dev_err(priv->device, "Failed to power on PHY with error %d\n", ret);
@@ -166,7 +160,6 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 
 err_power_on:
 	irq_set_irq_wake(qpriv->wol_irq, 0);
-err_set_irq_wake:
 err_pinctrl_select_state:
 err_assert_phy_rst:
 err_parse_properties:
@@ -188,7 +181,6 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 
 	devm_regulator_put(qpriv->phy_supply);
 
-	irq_set_irq_wake(qpriv->wol_irq, 0);
 	devm_pinctrl_put(qpriv->pinctrl);
 	kzfree(priv->plat_priv);
 	priv->plat_priv = NULL;
@@ -200,26 +192,34 @@ int tc956x_platform_suspend(struct tc956xmac_priv *priv)
 {
 	int ret = 0;
 
-	if(priv->wolopts == 0) {
+	if (priv->wolopts) {
+		ret = enable_irq_wake(priv->wol_irq);
+		if (unlikely(ret))
+			dev_err(priv->device, "Failed to set WOL IRQ %d as wake up capable with error %d\n",
+				priv->wol_irq, ret);
+	} else {
 		ret = tc956x_phy_power_off(priv);
-		if (ret) {
+		if (ret)
 			dev_err(priv->device, "Failed to power off PHY with error %d\n", ret);
-			return ret;
-		}
 	}
 
-	return 0;
+	return ret;
 }
 
 int tc956x_platform_resume(struct tc956xmac_priv *priv)
 {
 	int ret = 0;
 
-	ret = tc956x_phy_power_on(priv);
-	if (ret) {
-		dev_err(priv->device, "Failed to power on the PHY with error %d\n", ret);
-		return ret;
+	if (priv->wolopts) {
+		ret = disable_irq_wake(priv->wol_irq);
+		if (unlikely(ret))
+			dev_err(priv->device, "Failed to set WOL IRQ %d as a wake-disabled irq with error %d\n",
+				priv->wol_irq, ret);
+	} else {
+		ret = tc956x_phy_power_on(priv);
+		if (ret)
+			dev_err(priv->device, "Failed to power on the PHY with error %d\n", ret);
 	}
 
-	return 0;
+	return ret;
 }
