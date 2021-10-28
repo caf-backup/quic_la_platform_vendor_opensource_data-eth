@@ -733,6 +733,7 @@ int ioss_net_watch_device(struct ioss_device *idev)
 {
 	int rc = 0;
 	struct ioss_interface *iface;
+	char ws_name[32];
 
 	rc = ioss_debugfs_add_idev(idev);
 	if (rc) {
@@ -746,7 +747,8 @@ int ioss_net_watch_device(struct ioss_device *idev)
 
 		INIT_DELAYED_WORK(&iface->check_active, ioss_net_active_work);
 
-		iface->active_ws = wakeup_source_register(&idev->dev, iface->name);
+		snprintf(ws_name, sizeof(ws_name), "ioss.%s.active", iface->name);
+		iface->active_ws = wakeup_source_register(&idev->dev, ws_name);
 		if (!iface->active_ws) {
 			ioss_dev_err(idev, "Failed to register active wake source");
 			goto err_register;
