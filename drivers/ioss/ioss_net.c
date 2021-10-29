@@ -180,6 +180,23 @@ static void ioss_net_event_generic(struct ioss_interface *iface,
 	ioss_iface_queue_refresh(iface, false);
 }
 
+static void ioss_net_event_up(struct ioss_interface *iface,
+		unsigned long event, void *ptr)
+{
+	struct ethtool_wolinfo *wol = &iface->idev->wol;
+	struct net_device *net_dev = netdev_notifier_info_to_dev(ptr);
+	const struct ethtool_ops *ops = net_dev->ethtool_ops;
+
+	ioss_dev_log(iface->idev, "UP event for %s", net_dev->name);
+
+	if (wol->wolopts) {
+		if (!ops->set_wol || ops->set_wol(net_dev, wol))
+			ioss_dev_err(iface->idev, "Failed to set Wake-on-LAN");
+	}
+
+	ioss_iface_queue_refresh(iface, false);
+}
+
 typedef void (*ioss_net_event_handler)(struct ioss_interface *iface,
 		unsigned long event, void *ptr);
 
@@ -188,7 +205,7 @@ static ioss_net_event_handler
 		ioss_net_event_handlers[IOSS_NET_DEVICE_MAX_EVENTS] = {
 	[NETDEV_REGISTER] = ioss_net_event_register,
 	[NETDEV_UNREGISTER] = ioss_net_event_unregister,
-	[NETDEV_UP] = ioss_net_event_generic,
+	[NETDEV_UP] = ioss_net_event_up,
 	[NETDEV_GOING_DOWN] = ioss_net_event_generic,
 	[NETDEV_CHANGE] = ioss_net_event_generic,
 };

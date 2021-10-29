@@ -171,6 +171,8 @@ struct ioss_device {
 
 	struct notifier_block panic_nb;
 
+	struct ethtool_wolinfo wol;
+
 	void *private;
 };
 

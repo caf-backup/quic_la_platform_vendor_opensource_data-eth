@@ -197,6 +197,12 @@ static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 		}
 	}
 
+	if (!!of_find_property(np, "qcom,ioss-wol-phy", NULL))
+		idev->wol.wolopts |= WAKE_PHY;
+
+	if (!!of_find_property(np, "qcom,ioss-wol-magic", NULL))
+		idev->wol.wolopts |= WAKE_MAGIC;
+
 	return 0;
 }
 
