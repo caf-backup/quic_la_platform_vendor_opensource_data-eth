@@ -46,6 +46,17 @@
  *  VERSION     : 01-00-11
  *  23 Sep 2021 : 1. Enabling MSI MASK for MAC EVENT Interrupt to process RBU status and update to ethtool statistics
  *  VERSION     : 01-00-14
+ *  14 Oct 2021 : 1. Moving common Macros to common header file 
+ *  VERSION     : 01-00-16
+ *  19 Oct 2021 : 1. Adding M3 SRAM Debug counters to ethtool statistics
+ *                2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+ *  VERSION     : 01-00-17
+ *  21 Oct 2021 : 1. Added support for GPIO configuration API
+ *  VERSION     : 01-00-18
+ *  26 Oct 2021 : 1. Added macro to enable/disable EEE.
+		: 2. Added enums for PM Suspend-Resume.
+		: 3. Added macros for EEE, LPI Timer and MAC RST Status.
+ *  VERSION     : 01-00-19
  */
 
 #ifndef __COMMON_H__
@@ -72,7 +83,25 @@
 /* Enable DMA IPA offload */
 #define DMA_OFFLOAD_ENABLE
 
+/* Indepenedent Suspend/Resume Debug */
+#undef TC956X_PM_DEBUG
+
+/* Suspend-Resume Enum Counter */
+enum TC956X_INDEPENDENT_PORT_PM_SUSPEND {
+	NO_PORT_SUSPENDED = 0, /* Normal State */
+	SINGLE_PORT_SUSPENDED, /* Only Single Port suspended */
+	BOTH_PORT_SUSPENDED, /* Both Port suspended */
+};
+
+/* Suspend-Resume Arguments */
+enum TC956X_PORT_PM_STATE {
+	SUSPEND = 0,
+	RESUME,
+};
 #define TC956X_PCIE_LINK_STATE_LATENCY_CTRL
+
+#define DISABLE		0
+#define ENABLE		1
 
 /* Synopsys Core versions */
 #define DWMAC_CORE_3_40		0x34
@@ -85,6 +114,7 @@
 #define DWXGMAC_CORE_3_01	0x30
 
 //#define DISABLE_EMAC_PORT1
+//#define EEE /* Enable for EEE support */
 
 /* Note: Multiple macro definitions for TC956X_PCIE_LOGSTAT.
  * Please also define/undefine same macro in tc956xmac_ioctl.h, if changing in this file
@@ -638,6 +668,7 @@ enum packets_types {
 #define NCLKCTRL0_MAC0312CLKEN	BIT(30)
 #define NCLKCTRL0_MAC0ALLCLKEN	BIT(31)
 #define NRSTCTRL0_OFFSET	(0x1008)  /* TC956X reset control Register-0 */
+#define NRSTCTRL0_MCURST	BIT(0)
 #define NRSTCTRL0_INTRST	BIT(4)
 #define NRSTCTRL0_MAC0RST	BIT(7)
 #define NRSTCTRL0_PCIERST	BIT(9)
@@ -715,9 +746,43 @@ enum packets_types {
 #define NFUNCEN6_OFFSET		(0x1530)
 #define NFUNCEN7_OFFSET		(0x153C)
 
+#define NFUNCEN_FUNC0		(0)
+#define NFUNCEN4_GPIO_00	GENMASK(3, 0)
+#define NFUNCEN4_GPIO_00_SHIFT	(0)
+#define NFUNCEN4_GPIO_01	GENMASK(7, 4)
+#define NFUNCEN4_GPIO_01_SHIFT	(4)
+#define NFUNCEN4_GPIO_02	GENMASK(11, 8)
+#define NFUNCEN4_GPIO_02_SHIFT	(8)
+#define NFUNCEN4_GPIO_03	GENMASK(15, 12)
+#define NFUNCEN4_GPIO_03_SHIFT	(12)
+#define NFUNCEN4_GPIO_04	GENMASK(19, 16)
+#define NFUNCEN4_GPIO_04_SHIFT	(16)
+#define NFUNCEN4_GPIO_05	GENMASK(23, 20)
+#define NFUNCEN4_GPIO_05_SHIFT	(20)
+#define NFUNCEN4_GPIO_06	GENMASK(27, 24)
+#define NFUNCEN4_GPIO_06_SHIFT	(24)
+#define NFUNCEN5_GPIO_10	GENMASK(3, 0)
+#define NFUNCEN5_GPIO_10_SHIFT	(0)
+#define NFUNCEN5_GPIO_11	GENMASK(7, 4)
+#define NFUNCEN5_GPIO_11_SHIFT	(4)
+#define NFUNCEN6_GPIO_12	GENMASK(19, 16)
+#define NFUNCEN6_GPIO_12_SHIFT	(16)
+
 #define NIOCFG1_OFFSET		(0x1614)
 #define NIOCFG7_OFFSET		(0x163C)
 #define NIOEN7_OFFSET		(0x173C)
+
+#define GPIO_00			(0)
+#define GPIO_01			(1)
+#define GPIO_02			(2)
+#define GPIO_03			(3)
+#define GPIO_04			(4)
+#define GPIO_05			(5)
+#define GPIO_06			(6)
+#define GPIO_10			(10)
+#define GPIO_11			(11)
+#define GPIO_12			(12)
+#define GPIO_32			(32)
 
 /* PCIe registers */
 #define PCIE_OFFSET				(0x20000)
@@ -1218,6 +1283,33 @@ struct tc956xmac_extra_stats {
 	u64 xpcs_intr_n;
 	u64 phy_intr_n;
 	u64 sw_msi_n;
+	/*MTL Debug counters */
+	u64 mtl_tx_underflow[MTL_MAX_TX_QUEUES];
+	u64 mtl_rx_miss_pkt_cnt[MTL_MAX_RX_QUEUES];
+	u64 mtl_rx_overflow_pkt_cnt[MTL_MAX_RX_QUEUES];
+	u64 rxch_watchdog_timer[TC956XMAC_CH_MAX];
+
+	/*m3 SRAM debug counters */
+	u64 m3_debug_cnt0;
+	u64 m3_debug_cnt1;
+	u64 m3_debug_cnt2;
+	u64 m3_debug_cnt3;
+	u64 m3_debug_cnt4;
+	u64 m3_debug_cnt5;
+	u64 m3_debug_cnt6;
+	u64 m3_debug_cnt7;
+	u64 m3_debug_cnt8;
+	u64 m3_debug_cnt9;
+	u64 m3_debug_cnt10;
+	u64 m3_watchdog_exp_cnt;
+	u64 m3_watchdog_monitor_cnt;
+	u64 m3_debug_cnt13;
+	u64 m3_debug_cnt14;
+	u64 m3_systick_cnt_upper_value;
+	u64 m3_systick_cnt_lower_value;
+	u64 m3_tx_timeout_port0;
+	u64 m3_tx_timeout_port1;
+	u64 m3_debug_cnt19;
 
 };
 
@@ -1455,6 +1547,12 @@ struct dma_features {
 /* Default LPI timers */
 #define TC956XMAC_DEFAULT_LIT_LS	0x3E8
 #define TC956XMAC_DEFAULT_TWT_LS	0x1E
+#define TC956XMAC_LIT_LS		0x0011
+#define TC956XMAC_TWT_LS		0x0028
+#define TC956XMAC_TIC_1US_CNTR		0x7c
+#define TC956XMAC_LPIET_600US		0x258
+#define TC956X_PHY_SPEED_5G		5000
+#define TC956X_PHY_SPEED_2_5G		2500
 
 #define TC956XMAC_CHAIN_MODE	0x1
 #define TC956XMAC_RING_MODE	0x2
