@@ -152,9 +152,11 @@ void ioss_pci_stop(struct ioss *ioss)
 	bus_for_each_dev(&pci_bus_type, NULL, ioss, __pcie_walk_del_device);
 }
 
-static int ioss_pci_suspend_handler(struct device *dev)
+static int ioss_pci_apps_suspend_handler(struct ioss_device *idev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
+
+	idev->pm_stats.apps_suspend++;
 
 	/* state_saved unset to avoid pci state restore that will reset MSI-X */
 	pdev->state_saved = false;
@@ -164,22 +166,75 @@ static int ioss_pci_suspend_handler(struct device *dev)
 	 */
 	pdev->no_d3hot = true;
 
-	ioss_log_dbg(NULL,
-		   "Device suspend performing nop");
+	ioss_dev_dbg(idev, "Device suspend performing nop");
+
+	return 0;
+
+}
+
+static int ioss_pci_apps_resume_handler(struct ioss_device *idev)
+{
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
+
+	idev->pm_stats.apps_resume++;
+	pdev->no_d3hot = false;
+
+	ioss_dev_dbg(idev, "Device resume performing nop");
+
+	return 0;
+
+}
+
+static int ioss_pci_system_suspend_handler(struct ioss_device *idev)
+{
+	struct ioss_driver *idrv = ioss_dev_to_drv(idev);
+
+	idev->pm_stats.system_suspend++;
+
+	ioss_dev_log(idev, "Delegating device suspend to real driver");
+
+	if (idrv->pm_ops_real && idrv->pm_ops_real->suspend)
+		return idrv->pm_ops_real->suspend(ioss_idev_to_real(idev));
+	else
+		ioss_dev_err(idev, "Unable to delegate suspend to real driver");
 
 	return 0;
 }
 
-static int ioss_pci_resume_handler(struct device *dev)
+static int ioss_pci_system_resume_handler(struct ioss_device *idev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
+	struct ioss_driver *idrv = ioss_dev_to_drv(idev);
 
-	pdev->no_d3hot = false;
+	idev->pm_stats.system_resume++;
 
-	ioss_log_dbg(NULL,
-		"Device resume performing nop");
+	ioss_dev_log(idev, "Delegating device resume to real driver");
+
+	if (idrv->pm_ops_real && idrv->pm_ops_real->resume)
+		return idrv->pm_ops_real->resume(ioss_idev_to_real(idev));
+	else
+		ioss_dev_err(idev, "Unable to delegate resume to real driver");
 
 	return 0;
+}
+
+static int ioss_pci_suspend_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev->interface.state == IOSS_IF_ST_ONLINE) ?
+			ioss_pci_apps_suspend_handler(idev) :
+			ioss_pci_system_suspend_handler(idev);
+
+}
+
+static int ioss_pci_resume_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev->interface.state == IOSS_IF_ST_ONLINE) ?
+			ioss_pci_apps_resume_handler(idev) :
+			ioss_pci_system_resume_handler(idev);
+
 }
 
 /* MSM PCIe driver invokes only suspend and resume callbacks, other operations
@@ -190,6 +245,34 @@ static const struct dev_pm_ops ioss_pci_pm_ops = {
 	.suspend = ioss_pci_suspend_handler,
 	.resume = ioss_pci_resume_handler,
 };
+
+void ioss_pci_hijack_pm_ops(struct ioss_device *idev)
+{
+	struct device *dev = ioss_idev_to_real(idev);
+	struct ioss_driver *idrv = ioss_dev_to_drv(idev);
+
+	mutex_lock(&idrv->pm_lock);
+	/* Hijack pm_ops */
+	if (!refcount_inc_not_zero(&idrv->pm_refcnt)) {
+		idrv->pm_ops_real = dev->driver->pm;
+		dev->driver->pm = &ioss_pci_pm_ops;
+		refcount_set(&idrv->pm_refcnt, 1);
+	}
+	mutex_unlock(&idrv->pm_lock);
+}
+
+void ioss_pci_restore_pm_ops(struct ioss_device *idev)
+{
+	struct device *dev = ioss_idev_to_real(idev);
+	struct ioss_driver *idrv = ioss_dev_to_drv(idev);
+
+	mutex_lock(&idrv->pm_lock);
+	/* Revert Hijack pm_ops */
+	if (refcount_dec_and_test(&idrv->pm_refcnt))
+		dev->driver->pm = idrv->pm_ops_real;
+	mutex_unlock(&idrv->pm_lock);
+}
+
 
 int ioss_pci_enable_pc(struct ioss_device *idev)
 {
@@ -207,12 +290,6 @@ int ioss_pci_enable_pc(struct ioss_device *idev)
 	}
 
 	ioss_dev_log(idev, "Enabled MSM PCIe power collapse");
-
-	mutex_lock(&idev->pm_lock);
-	/* Revert Hijack pm_ops */
-	if (refcount_dec_and_test(&idev->pm_refcnt))
-		dev->driver->pm = idev->pm_ops_real;
-	mutex_unlock(&idev->pm_lock);
 
 	return rc;
 }
@@ -233,15 +310,6 @@ int ioss_pci_disable_pc(struct ioss_device *idev)
 	}
 
 	ioss_dev_log(idev, "Disabled MSM PCIe power collapse");
-
-	mutex_lock(&idev->pm_lock);
-	/* Hijack pm_ops */
-	if (!refcount_inc_not_zero(&idev->pm_refcnt)) {
-		idev->pm_ops_real = dev->driver->pm;
-		dev->driver->pm = &ioss_pci_pm_ops;
-		refcount_set(&idev->pm_refcnt, 1);
-	}
-	mutex_unlock(&idev->pm_lock);
 
 	return rc;
 }
