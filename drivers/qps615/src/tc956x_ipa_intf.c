@@ -779,8 +779,6 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 {
 	struct tc956xmac_priv *priv;
 	struct mem_ops *mem_ops;
-	struct tc956xmac_tx_queue *tx_q;
-	struct tc956xmac_rx_queue *rx_q;
 
 	int ret = -EINVAL;
 

@@ -67,7 +67,7 @@ struct platform_device *ioss_find_dev_from_of_node(
 int ioss_ipa_register(struct ioss_interface *iface);
 int ioss_ipa_unregister(struct ioss_interface *iface);
 
-enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_interface *iface);
+enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_device *idev);
 int ioss_ipa_hal_fill_si(struct ioss_channel *ch);
 
 int ioss_bus_register_driver(struct ioss_driver *idrv);

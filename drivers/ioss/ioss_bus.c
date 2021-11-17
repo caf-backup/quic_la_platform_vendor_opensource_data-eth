@@ -87,8 +87,9 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 		return -EINVAL;
 
 	idev->dev.offline = input;
-	ioss_for_each_iface(iface, idev)
-		ioss_iface_queue_refresh(iface, true);
+
+	ioss_iface_queue_refresh(iface, true);
+
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
 	return size;
@@ -126,7 +127,7 @@ static int ioss_bus_probe(struct device *dev)
 
 	rc = ioss_net_watch_device(idev);
 	if (rc) {
-		ioss_dev_err(idev, "Failed to watch interfaces");
+		ioss_dev_err(idev, "Failed to watch net device");
 		goto err_watch;
 	}
 
@@ -190,8 +191,8 @@ static int __ioss_bus_resume_idev(struct device *dev)
 {
 	bool need_refresh = false;
 	bool was_suspended = true;
-	struct ioss_interface *iface;
 	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Resuming device");
 
@@ -200,13 +201,11 @@ static int __ioss_bus_resume_idev(struct device *dev)
 		need_refresh = true;
 	}
 
-	ioss_for_each_iface(iface, idev) {
-		if (iface->state == IOSS_IF_ST_ONLINE)
-			was_suspended = false;
+	if (iface->state == IOSS_IF_ST_ONLINE)
+		was_suspended = false;
 
-		if (need_refresh)
-			ioss_iface_queue_refresh(iface, false);
-	}
+	if (need_refresh)
+		ioss_iface_queue_refresh(iface, false);
 
 	if (was_suspended)
 		pm_wakeup_dev_event(dev, IOSS_RESUME_SETTLE_MS, false);
@@ -216,14 +215,12 @@ static int __ioss_bus_resume_idev(struct device *dev)
 
 static int __ioss_bus_online_idev(struct device *dev)
 {
-	struct ioss_device *idev;
-	struct ioss_interface *iface;
+	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	dev->offline = 0;
-	idev = to_ioss_device(dev);
 
-	ioss_for_each_iface(iface, idev)
-		ioss_iface_queue_refresh(iface, true);
+	ioss_iface_queue_refresh(iface, true);
 
 	ioss_dev_log(idev, "Online device");
 
@@ -232,14 +229,12 @@ static int __ioss_bus_online_idev(struct device *dev)
 
 static int __ioss_bus_offline_idev(struct device *dev)
 {
-	struct ioss_device *idev;
-	struct ioss_interface *iface;
+	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	dev->offline = 1;
-	idev = to_ioss_device(dev);
 
-	ioss_for_each_iface(iface, idev)
-		ioss_iface_queue_refresh(iface, true);
+	ioss_iface_queue_refresh(iface, true);
 
 	ioss_dev_log(idev, "Offline device");
 
@@ -380,7 +375,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	idev->root = ioss;
 	mutex_init(&idev->pm_lock);
 	refcount_set(&idev->pm_refcnt, 0);
-	INIT_LIST_HEAD(&idev->interfaces);
+
+	INIT_LIST_HEAD(&idev->interface.channels);
 
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
@@ -392,22 +388,17 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 void ioss_bus_free_idev(struct ioss_device *idev)
 {
 	int i;
-	struct ioss_interface *iface, *tmp_iface;
+	struct ioss_channel *ch, *tmp_ch;
+	struct ioss_interface *iface = &idev->interface;
 
-	/* Free interfaces and channels */
-	list_for_each_entry_safe(iface, tmp_iface, &idev->interfaces, node) {
-		struct ioss_channel *ch, *tmp_ch;
-
-		list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
-			list_del(&ch->node);
-			kzfree(ch->ioss_priv);
-			kzfree(ch);
-		}
-
-		list_del(&iface->node);
-		kzfree(iface->ioss_priv);
-		kzfree(iface);
+	/* Free channels */
+	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+		list_del(&ch->node);
+		kzfree(ch->ioss_priv);
+		kzfree(ch);
 	}
+
+	kzfree(iface->ioss_priv);
 
 	mutex_destroy(&idev->pm_lock);
 
@@ -439,6 +430,8 @@ void ioss_bus_unregister_idev(struct ioss_device *idev)
 int ioss_bus_register_iface(struct ioss_interface *iface,
 		struct net_device *net_dev)
 {
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
 	dev_hold(net_dev);
 
 	iface->dev.parent = &net_dev->dev;
@@ -446,7 +439,7 @@ int ioss_bus_register_iface(struct ioss_interface *iface,
 	iface->dev.type = &ioss_iface_type;
 
 	dev_set_name(&iface->dev, "%s-%s",
-			dev_name(&iface->idev->dev), net_dev->name);
+			dev_name(&idev->dev), net_dev->name);
 
 	return device_register(&iface->dev);
 }
