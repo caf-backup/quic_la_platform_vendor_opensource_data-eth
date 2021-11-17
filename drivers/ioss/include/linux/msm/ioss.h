@@ -608,6 +608,7 @@ struct ioss_driver {
 
 	struct mutex pm_lock;
 	refcount_t pm_refcnt;
+	struct dev_pm_ops pm_ops;
 	const struct dev_pm_ops *pm_ops_real;
 };
 
