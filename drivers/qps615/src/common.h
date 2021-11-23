@@ -375,8 +375,8 @@ enum packets_types {
 
 
 /* Rx Queue Size */
-#define RX_QUEUE0_SIZE		18432
-#define RX_QUEUE1_SIZE		18432
+#define RX_QUEUE0_SIZE		4096
+#define RX_QUEUE1_SIZE		43008
 #define RX_QUEUE2_SIZE		0
 #define RX_QUEUE3_SIZE		0
 #define RX_QUEUE4_SIZE		0
