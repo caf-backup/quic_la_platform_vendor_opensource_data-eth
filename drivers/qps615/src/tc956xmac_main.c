@@ -74,8 +74,12 @@
  *  24 Nov 2021 : 1. EEE update for runtime configuration and LPI interrupt disabled.
  		  2. EEE SW timers removed. Only HW timers used to control EEE LPI entry/exit
  		  3. USXGMII support during link change
- *  VERSION     : 01-00-24 
-*/
+ *  VERSION     : 01-00-24
+ *  30 Nov 2021 : 1. Added PHY Workqueue Cancel during suspend only if network interface available.
+ *  VERSION     : 01-00-26
+ *  01 Dec 2021 : 1. Free EMAC IRQ during suspend and request EMAC IRQ during resume.
+ *  VERSION     : 01-00-27
+ */
 
 #include <linux/clk.h>
 #include <linux/kernel.h>
@@ -4337,18 +4341,18 @@ static int tc956xmac_open(struct net_device *dev)
 
 	KPRINT_INFO("%s phylink started", __func__);
 
-	/* Do not re-request host irq resources during resume sequence. */
-	if (priv->tc956x_port_pm_suspend == false) {
-		/* Request the IRQ lines */
-		ret = request_irq(dev->irq, tc956xmac_interrupt,
-				  IRQF_NO_SUSPEND, dev->name, dev);
-		if (unlikely(ret < 0)) {
-			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
-				   __func__, dev->irq, ret);
-			goto irq_error;
-		}
+	/* Request the IRQ lines */
+	ret = request_irq(dev->irq, tc956xmac_interrupt,
+			  IRQF_NO_SUSPEND, dev->name, dev);
+	if (unlikely(ret < 0)) {
+		netdev_err(priv->dev,
+			   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
+			   __func__, dev->irq, ret);
+		goto irq_error;
+	}
 
+	/* Do not re-request WOL irq resources during resume sequence. */
+	if (priv->tc956x_port_pm_suspend == false) {
 		/* Request the Wake IRQ in case of another line is used for WoL */
 		if (priv->wol_irq != dev->irq) {
 			ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
@@ -4454,11 +4458,10 @@ static int tc956xmac_release(struct net_device *dev)
 			del_timer_sync(&priv->tx_queue[chan].txtimer);
 	}
 #endif
+	/* Free the IRQ lines */
+	free_irq(dev->irq, dev);
 	/* Do not Free Host Irq resources during suspend sequence */
 	if (priv->tc956x_port_pm_suspend == false) {
-		/* Free the IRQ lines */
-		free_irq(dev->irq, dev);
-
 		if (priv->wol_irq != dev->irq)
 			free_irq(priv->wol_irq, dev);
 #ifndef TC956X
@@ -10760,6 +10763,9 @@ int tc956xmac_suspend(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
+	struct phy_device *phydev; /* For cancelling Work queue */
+	int addr = priv->plat->phy_addr;
+	phydev = mdiobus_get_phy(priv->mii, addr);
 
 	if (!ndev)
 		return 0;
@@ -10776,6 +10782,15 @@ int tc956xmac_suspend(struct device *dev)
 
 	if (!netif_running(ndev))
 		goto clean_exit;
+
+	/* Cancel all work-queues before suspend start only when net interface is up and running */
+	if(phydev->drv != NULL) {
+		if ((true == priv->plat->phy_interrupt_mode) && 
+		(phydev->drv->config_intr)) {
+			DBGPR_FUNC(priv->device, "%s : (Flush All PHY work-queues) \n", __func__);
+			cancel_work_sync(&priv->emac_phy_work);
+		}
+	}
 
 	/* Invoke device driver close only when net inteface is up and running. */
 	rtnl_lock();
