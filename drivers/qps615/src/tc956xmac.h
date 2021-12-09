@@ -299,6 +299,10 @@
 
 #define	TC956XMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
 
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	#include <soc/qcom/boot_stats.h>
+#endif
+
 #ifdef DMA_OFFLOAD_ENABLE
 struct tc956xmac_cm3_tamap {
 	u32 trsl_addr_hi;

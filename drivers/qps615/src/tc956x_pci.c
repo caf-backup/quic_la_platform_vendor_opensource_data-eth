@@ -1885,6 +1885,10 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		tc956x_drv_version.patch_rel_major, tc956x_drv_version.patch_rel_minor);
 	NMSGPR_INFO(&pdev->dev, "%s\n", version_str);
 
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet probe start");
+#endif
+
 	plat = devm_kzalloc(&pdev->dev, sizeof(*plat), GFP_KERNEL);
 	if (!plat)
 		return -ENOMEM;
@@ -2357,6 +2361,9 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	tc956xmac_pm_usage_counter++;
 	DBGPR_FUNC(&(pdev->dev), "%s : (Device Usage Count = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
 	mutex_unlock(&tc956x_pm_suspend_lock);
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet probe end");
+#endif
 	return ret;
 
 err_out_msi_failed:

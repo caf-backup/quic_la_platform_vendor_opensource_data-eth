@@ -2036,6 +2036,9 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 #ifdef TC956X_PM_DEBUG
 	pm_generic_resume(priv->device);
 #endif
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet is Ready. Link is UP");
+#endif
 }
 
 static const struct phylink_mac_ops tc956xmac_phylink_mac_ops = {
