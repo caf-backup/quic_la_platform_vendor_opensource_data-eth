@@ -335,6 +335,8 @@ struct ioss_device {
 
 	void *private;
 
+	bool unbinding;
+
 	struct {
 		u64 apps_suspend;
 		u64 apps_resume;

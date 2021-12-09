@@ -737,7 +737,7 @@ static void ioss_refresh_work(struct work_struct *work)
 	iface->link_speed = __fetch_ethtool_link_speed(net_dev);
 
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
-	    && !(dev->offline))
+	    && !(dev->offline) && !idev->unbinding)
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);
@@ -762,6 +762,8 @@ int ioss_net_watch_device(struct ioss_device *idev)
 		ioss_dev_err(idev, "Unable to add idev to debugfs");
 		return -EFAULT;
 	}
+
+	idev->unbinding = false;
 
 	INIT_WORK(&iface->refresh, ioss_refresh_work);
 	iface->net_dev_nb.notifier_call = ioss_net_device_event;
@@ -807,6 +809,9 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Unwatching interface %s", idev->net_dev->name);
+
+	idev->unbinding = true;
+	ioss_iface_queue_refresh(iface, true);
 
 	rc = unregister_netdevice_notifier(&iface->net_dev_nb);
 	if (rc)
