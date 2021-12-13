@@ -271,9 +271,9 @@ static void dwxgmac2_dma_rx_mode(struct tc956xmac_priv *priv,
 
 		default:
 		/* 13K Clear Trigger when Q(x) is filled with Max Size - 13K */
-			rfd = 24;
+			rfd = 46;
 		/* 13K Trigger when Q(x) is filled with Max Size - 13K */
-			rfa = 24;
+			rfa = 46;
 			break;
 		}
 

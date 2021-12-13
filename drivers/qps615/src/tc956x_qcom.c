@@ -6,6 +6,7 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/regulator/consumer.h>
 #include <linux/of_irq.h>
+#include <linux/delay.h>
 
 #include "tc956xmac.h"
 
@@ -14,6 +15,7 @@ struct tc956x_qcom_priv {
 	struct pinctrl_state *pinctrl_default;
 	struct regulator *phy_supply;
 	u32 phy_rst_gpio;
+	u32 phy_rst_delay_us;
 	int wol_irq;
 };
 
@@ -48,6 +50,9 @@ static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 			dev_err(priv->device, "Failed to disable regulator\n");
 	}
 
+	dev_dbg(priv->device,"QPS615 PHY out of reset delay %d", qpriv->phy_rst_delay_us);
+	usleep_range(qpriv->phy_rst_delay_us, qpriv->phy_rst_delay_us);
+
 	return ret;
 }
 
@@ -77,6 +82,11 @@ static int tc956x_platform_of_parse(struct device *dev,
 {
 	if (of_property_read_u32(dev->of_node,"qcom,phy-rst-gpio", &qpriv->phy_rst_gpio)) {
 		dev_err(dev, "Failed to get PHY reset GPIO\n");
+		return -EINVAL;
+	}
+
+	if (of_property_read_u32(dev->of_node, "qcom,phy-rst-delay-us", &qpriv->phy_rst_delay_us)) {
+		dev_err(dev, "Failed to get PHY reset delay time\n");
 		return -EINVAL;
 	}
 
