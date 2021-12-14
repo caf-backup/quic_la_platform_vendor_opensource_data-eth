@@ -113,6 +113,8 @@ static int ioss_bus_probe(struct device *dev)
 		return rc;
 	}
 
+	ioss_pci_hijack_pm_ops(idev);
+
 	rc = ioss_register_panic_notifier(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to register panic notifier");
@@ -147,6 +149,8 @@ err_watch:
 err_open:
 	ioss_unregister_panic_notifier(idev);
 err_notifier:
+	ioss_pci_restore_pm_ops(idev);
+
 	return rc;
 }
 
@@ -173,6 +177,7 @@ static int ioss_bus_remove(struct device *dev)
 	}
 
 	ioss_unregister_panic_notifier(idev);
+	ioss_pci_restore_pm_ops(idev);
 	device_init_wakeup(dev, false);
 
 	return 0;
@@ -318,6 +323,9 @@ int ioss_bus_register_driver(struct ioss_driver *idrv)
 	idrv->drv.name = idrv->name;
 	idrv->drv.bus = &ioss_bus;
 
+	mutex_init(&idrv->pm_lock);
+	refcount_set(&idrv->pm_refcnt, 0);
+
 	/* Init drv */
 	/* Register driver */
 
@@ -336,6 +344,8 @@ void ioss_bus_unregister_driver(struct ioss_driver *idrv)
 	int i;
 
 	driver_unregister(&idrv->drv);
+
+	mutex_destroy(&idrv->pm_lock);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_drivers); i++) {
 		if (ioss_drivers[i] == idrv) {
@@ -364,6 +374,12 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 		return NULL;
 	}
 
+	if (!dev->driver || !dev->driver->pm) {
+		ioss_log_err(NULL,
+			"Driver %s does not support PM callbacks", dev_name(dev));
+		return NULL;
+	}
+
 	idev = kzalloc(sizeof(*idev), GFP_KERNEL);
 	if (!idev) {
 		ioss_log_err(NULL, "Failed to alloc ioss device");
@@ -373,8 +389,6 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	*idev_list_entry = idev;
 
 	idev->root = ioss;
-	mutex_init(&idev->pm_lock);
-	refcount_set(&idev->pm_refcnt, 0);
 
 	INIT_LIST_HEAD(&idev->interface.channels);
 
@@ -399,8 +413,6 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	}
 
 	kzfree(iface->ioss_priv);
-
-	mutex_destroy(&idev->pm_lock);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
 		if (ioss_devices[i] == idev) {

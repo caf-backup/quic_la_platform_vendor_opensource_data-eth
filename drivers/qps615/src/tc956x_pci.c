@@ -78,6 +78,31 @@
 		  3. Added platform api calls.
 		  4. Version update
  *  VERSION     : 01-00-19
+ *  04 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-20
+ *  08 Nov 2021 : 1. Version update.
+ 		  2. Cancel PHY Workqueue before suspend.
+ 		  3. Restore Gen 3 Speed after resume.
+ *  VERSION     : 01-00-21
+ *  24 Nov 2021 : 1. Version update
+ 		  2. Single Port Suspend/Resume supported
+ *  VERSION     : 01-00-22
+ *  24 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-23
+ *  24 Nov 2021 : 1. Module param support for EEE enable/disable and LPI timer configuration.
+ 		  2. Version update
+ *  VERSION     : 01-00-24
+ *  30 Nov 2021 : 1. Print message correction for PCIe BAR size and Physical Address.
+ 		  2. Version update
+ *  VERSION     : 01-00-25
+ *  30 Nov 2021 : 1. Removed PHY Workqueue Cancellation before suspend.
+ 		  2. Version update
+ *  VERSION     : 01-00-26
+ *  01 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-27
+ *  01 Dec 2021 : 1. Resetting SRAM Region before loading firmware.
+ 		  2. Version update
+ *  VERSION     : 01-00-28
  */
 
 #include <linux/clk-provider.h>
@@ -110,10 +135,15 @@ static unsigned int tc956x_port1_interface = ENABLE_SGMII_INTERFACE;
 unsigned int tc956x_port0_filter_phy_pause_frames = DISABLE;
 unsigned int tc956x_port1_filter_phy_pause_frames = DISABLE;
 
-static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 1, 9};
+static unsigned int tc956x_port0_enable_eee = DISABLE;
+static unsigned int tc956x_port0_lpi_auto_entry_timer = TC956XMAC_LPIET_600US;
+static unsigned int tc956x_port1_enable_eee = DISABLE;
+static unsigned int tc956x_port1_lpi_auto_entry_timer = TC956XMAC_LPIET_600US;
 
-enum TC956X_INDEPENDENT_PORT_PM_SUSPEND tc956xmac_pm_suspend_counter = NO_PORT_SUSPENDED;
-struct mutex tc956x_pm_suspend_lock;
+static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 2, 8};
+
+static int tc956xmac_pm_usage_counter; /* Device Usage Counter */
+struct mutex tc956x_pm_suspend_lock; /* This mutex is shared between all available EMAC ports. */
 
 /*
  * This struct is used to associate PCI Function of MAC controller on a board,
@@ -1259,6 +1289,26 @@ static const struct tc956xmac_pci_info tc956xmac_xgmac3_2_5g_mdio_pci_info = {
 #endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 
 /*!
+ * \brief API to Reset SRAM Region.
+ *
+ * \details This function Resets both IMEM & DMEM sections of tc956x.
+ *
+ * \param[in] dev  - pointer to device structure.
+ * \param[in] res  - pointer to tc956xmac_resources structure.
+ *
+ * \return none
+ */
+static void tc956x_reset_SRAM(struct device *dev, struct tc956xmac_resources *res)
+{
+	NMSGPR_INFO(dev,  "Resetting SRAM Region start\n");
+	/* Resetting SRAM IMEM Region */
+	memset_io(res->tc956x_SRAM_pci_base_addr, 0x0, 0x10000);
+	/* Resetting SRAM DMEM Region */
+	memset_io((res->tc956x_SRAM_pci_base_addr + 0x40000), 0x0, 0x10000);
+	NMSGPR_INFO(dev,  "Resetting SRAM Region end\n");
+}
+ 
+/*!
  * \brief API to load firmware for CM3.
  *
  * \details This fucntion loads the firmware onto the SRAM of tc956x.
@@ -1306,6 +1356,7 @@ s32 tc956x_load_firmware(struct device *dev, struct tc956xmac_resources *res)
 			TC956X_M3_INIT_DONE));
 	iowrite32(0, (void __iomem *)(res->tc956x_SRAM_pci_base_addr +
 			TC956X_M3_FW_EXIT));
+	tc956x_reset_SRAM(dev, res);
 #endif
 	/* Copy TC956X FW to SRAM */
 	adrs = TC956X_ZERO;/* SRAM Start Address */
@@ -1367,6 +1418,7 @@ s32 tc956x_load_firmware(struct device *dev, struct tc956xmac_resources *res)
 #endif
 
 #ifdef TC956X
+	tc956x_reset_SRAM(dev, res);
 	/* Copy TC956X FW to SRAM */
 	memcpy_toio(res->tc956x_SRAM_pci_base_addr, pfw->data, pfw->size);
 #endif
@@ -1874,17 +1926,17 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	pci_set_master(pdev);
 
 	dev_info(&(pdev->dev),
-		"BAR0 length = %lld kb\n", (u64)pci_resource_len(pdev, 0));
+		"BAR0 length = %lld bytes\n", (u64)pci_resource_len(pdev, 0));
 	dev_info(&(pdev->dev),
-		"BAR2 length = %lld kb\n", (u64)pci_resource_len(pdev, 2));
+		"BAR2 length = %lld bytes\n", (u64)pci_resource_len(pdev, 2));
 	dev_info(&(pdev->dev),
-		"BAR4 length = %lld kb\n", (u64)pci_resource_len(pdev, 4));
+		"BAR4 length = %lld bytes\n", (u64)pci_resource_len(pdev, 4));
 	dev_info(&(pdev->dev),
-		"BAR0 iommu address = 0x%llx\n", (u64)pci_resource_start(pdev, 0));
+		"BAR0 physical address = 0x%llx\n", (u64)pci_resource_start(pdev, 0));
 	dev_info(&(pdev->dev),
-		"BAR2 iommu address = 0x%llx\n", (u64)pci_resource_start(pdev, 2));
+		"BAR2 physical address = 0x%llx\n", (u64)pci_resource_start(pdev, 2));
 	dev_info(&(pdev->dev),
-		"BAR4 iommu address = 0x%llx\n", (u64)pci_resource_start(pdev, 4));
+		"BAR4 physical address = 0x%llx\n", (u64)pci_resource_start(pdev, 4));
 
 	memset(&res, 0, sizeof(res));
 #ifdef TC956X
@@ -2061,6 +2113,44 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	}
 
 	plat->port_interface = res.port_interface;
+
+	if (res.port_num == RM_PF0_ID) {
+		if ((tc956x_port0_enable_eee != DISABLE) && 
+		(tc956x_port0_enable_eee != ENABLE)) {
+			tc956x_port0_enable_eee = DISABLE;
+			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid tc956x_port0_enable_eee parameter passed. Restoring default to %d. Supported Values are 0 and 1.\n", 
+			__func__, tc956x_port1_enable_eee);
+		}
+
+		if ((tc956x_port0_enable_eee == ENABLE) && 
+		(tc956x_port0_lpi_auto_entry_timer > TC956X_MAX_LPI_AUTO_ENTRY_TIMER)) {
+			tc956x_port0_lpi_auto_entry_timer = TC956XMAC_LPIET_600US;
+			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid tc956x_port0_lpi_auto_entry_timer parameter passed. Restoring default to %d. Supported Values between %d and %d.\n", 
+			__func__, tc956x_port1_lpi_auto_entry_timer, 
+			TC956X_MIN_LPI_AUTO_ENTRY_TIMER, TC956X_MAX_LPI_AUTO_ENTRY_TIMER);
+		}
+		res.eee_enabled = tc956x_port0_enable_eee;
+		res.tx_lpi_timer = tc956x_port0_lpi_auto_entry_timer;
+	}
+
+	if (res.port_num == RM_PF1_ID) {
+		if ((tc956x_port1_enable_eee != DISABLE) && 
+		(tc956x_port1_enable_eee != ENABLE)) {
+			tc956x_port1_enable_eee = DISABLE;
+			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid tc956x_port1_enable_eee parameter passed. Restoring default to %d. Supported Values are 0 and 1.\n", 
+			__func__, tc956x_port1_enable_eee);
+		}
+
+		if ((tc956x_port0_enable_eee == ENABLE) && 
+		(tc956x_port1_lpi_auto_entry_timer > TC956X_MAX_LPI_AUTO_ENTRY_TIMER)) {
+			tc956x_port1_lpi_auto_entry_timer = TC956XMAC_LPIET_600US;
+			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid tc956x_port1_lpi_auto_entry_timer parameter passed. Restoring default to %d. Supported Values between %d and %d.\n", 
+			__func__, tc956x_port1_lpi_auto_entry_timer, 
+			TC956X_MIN_LPI_AUTO_ENTRY_TIMER, TC956X_MAX_LPI_AUTO_ENTRY_TIMER);
+		}
+		res.eee_enabled = tc956x_port1_enable_eee;
+		res.tx_lpi_timer = tc956x_port1_lpi_auto_entry_timer;
+	}
 
 	ret = info->setup(pdev, plat);
 
@@ -2252,12 +2342,19 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		dev_dbg(&(pdev->dev), "%s : ltssm_data.ltssm_stop_status = %d\n", __func__, ltssm_data.ltssm_stop_status);
 	}
 #endif /* TC956X_PCIE_LOGSTAT */
-	mutex_init(&tc956x_pm_suspend_lock);
+	/* Initialize only once */
+	if (tc956xmac_pm_usage_counter == TC956X_NO_MAC_DEVICE_IN_USE)
+		mutex_init(&tc956x_pm_suspend_lock);
 
 #ifdef DMA_OFFLOAD_ENABLE
 	if (res.port_num == RM_PF0_ID)
 		port0_pdev = pdev;
 #endif
+	mutex_lock(&tc956x_pm_suspend_lock);
+	/* Increment device usage counter */
+	tc956xmac_pm_usage_counter++;
+	DBGPR_FUNC(&(pdev->dev), "%s : (Device Usage Count = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
+	mutex_unlock(&tc956x_pm_suspend_lock);
 	return ret;
 
 err_out_msi_failed:
@@ -2339,59 +2436,17 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 	pci_release_regions(pdev);
 
 	pci_disable_device(pdev);
-	mutex_destroy(&tc956x_pm_suspend_lock);
+
+	mutex_lock(&tc956x_pm_suspend_lock);
+	/* Decrement device usage counter */
+	tc956xmac_pm_usage_counter--;
+	DBGPR_FUNC(&(pdev->dev), "%s : (Device Usage Count = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
+	mutex_unlock(&tc956x_pm_suspend_lock);
+	/* Destroy Mutex only once */
+	if (tc956xmac_pm_usage_counter == TC956X_NO_MAC_DEVICE_IN_USE)
+		mutex_destroy(&tc956x_pm_suspend_lock);
 
 	DBGPR_FUNC(&(pdev->dev), "<--%s\n", __func__);
-}
-
-/*!
- * \brief API to increment port-wise suspend counter.
- *
- * \details This api will be called during suspend operation.
- * This will set(increase) the tc956xmac_pm_set_counter based on
- * number of times tc956x_pcie_suspend() is called as per following :
- * If no port suspended - the api will set to Single Port Supended,
- * If one port already suspended - the api will set to Single Port Supended,
- * If both port suspended - the api will return error.
- *
- * \param[in] pdev - pointer to pci_dev structure.
- *
- * \return int
- */
-static inline int tc956xmac_pm_set_counter(struct tc956xmac_priv *priv)
-{
-	if (tc956xmac_pm_suspend_counter == NO_PORT_SUSPENDED)
-		tc956xmac_pm_suspend_counter = SINGLE_PORT_SUSPENDED;
-	else if (tc956xmac_pm_suspend_counter == SINGLE_PORT_SUSPENDED)
-		tc956xmac_pm_suspend_counter = BOTH_PORT_SUSPENDED;
-	else /* if (tc956xmac_pm_suspend_counter == BOTH_PORT_SUSPENDED)*/
-		return -1;
-	return tc956xmac_pm_suspend_counter;
-}
-
-/*!
- * \brief API to decrement port-wise suspend counter.
- *
- * \details This api will be called during resume operation.
- * This will set(decrease) the tc956xmac_pm_set_counter based on
- * number of times tc956x_pcie_resume() is called as per following :
- * If both port suspended - the api will set to Single Port Supended,
- * If one port is already suspended - the api will set to No Port Supended,
- * If no port is suspended - on calling the api will return error.
- *
- * \param[in] pdev - pointer to pci_dev structure.
- *
- * \return int
- */
-static inline int tc956xmac_pm_get_counter(struct tc956xmac_priv *priv)
-{
-	if (tc956xmac_pm_suspend_counter == BOTH_PORT_SUSPENDED)
-		tc956xmac_pm_suspend_counter = SINGLE_PORT_SUSPENDED;
-	else if (tc956xmac_pm_suspend_counter == SINGLE_PORT_SUSPENDED)
-		tc956xmac_pm_suspend_counter = NO_PORT_SUSPENDED;
-	else /* if (tc956xmac_pm_suspend_counter == NO_PORT_SUSPENDED) */
-		return -1;
-	return tc956xmac_pm_suspend_counter;
 }
 
 /*!
@@ -2462,10 +2517,10 @@ static int tc956x_pcie_pm_enable_pci(struct pci_dev *pdev)
  */
 static int tc956x_pcie_pm_pci(struct pci_dev *pdev, enum TC956X_PORT_PM_STATE state)
 {
-	static struct pci_dev *tc956x_pd = NULL, *tc956x_dsp_ep = NULL, *tc956x_port_pdev[2];
+	static struct pci_dev *tc956x_pd = NULL, *tc956x_dsp_ep = NULL, *tc956x_port_pdev[2] = {NULL}; 
 	struct pci_bus *bus = NULL;
-	int ret = 0, i = 0;
-	if (tc956xmac_pm_suspend_counter > SINGLE_PORT_SUSPENDED) {
+	int ret = 0, i = 0, p = 0;
+	if (tc956xmac_pm_usage_counter == TC956X_ALL_MAC_PORT_SUSPENDED) {
 		tc956x_dsp_ep = pci_upstream_bridge(pdev);
 		bus = tc956x_dsp_ep->subordinate;
 
@@ -2473,21 +2528,17 @@ static int tc956x_pcie_pm_pci(struct pci_dev *pdev, enum TC956X_PORT_PM_STATE st
 		    list_for_each_entry(tc956x_pd, &bus->devices, bus_list)
 			tc956x_port_pdev[i++] = tc956x_pd;
 
-		/* Enter only if at least 1 Port Suspended */
-		if (state == SUSPEND) {
-			ret = tc956x_pcie_pm_disable_pci(tc956x_port_pdev[0]);
-			if (ret < 0)
-				goto err;
-			ret = tc956x_pcie_pm_disable_pci(tc956x_port_pdev[1]);
-			if (ret < 0)
-				goto err;
-		} else if (state == RESUME) {
-			ret = tc956x_pcie_pm_enable_pci(tc956x_port_pdev[0]);
-			if (ret < 0)
-				goto err;
-			ret = tc956x_pcie_pm_enable_pci(tc956x_port_pdev[1]);
-			if (ret < 0)
-				goto err;
+		for (p = 0; ((p < i) && (tc956x_port_pdev[p] != NULL)); p++) {
+			/* Enter only if at least 1 Port Suspended */
+			if (state == SUSPEND) {
+				ret = tc956x_pcie_pm_disable_pci(tc956x_port_pdev[p]);
+				if (ret < 0)
+					goto err;
+			} else if (state == RESUME) {
+				ret = tc956x_pcie_pm_enable_pci(tc956x_port_pdev[p]);
+				if (ret < 0)
+					goto err;
+			}
 		}
 	}
 err :
@@ -2524,24 +2575,20 @@ static int tc956x_pcie_suspend(struct device *dev)
 		DBGPR_FUNC(&(pdev->dev), "<--%s : Port %d already Suspended \n", __func__, priv->port_num);
 		return -1;
 	}
+	/* Set flag to avoid queuing any more work */
+	priv->tc956x_port_pm_suspend = true;
 
 	mutex_lock(&tc956x_pm_suspend_lock);
 
-	/* Increment Suspend counter */
-	ret = tc956xmac_pm_set_counter(priv);
-	if (ret < 0) {
-		DBGPR_FUNC(&(pdev->dev), "%s : (Both Ports Already Suspended ) \n", __func__);
-		goto err;
-	} else
-		DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports Suspended = [%d]) \n", __func__, ret);
-
-	priv->tc956x_port_pm_suspend = true;
+	/* Decrement device usage counter */
+	tc956xmac_pm_usage_counter--;
+	DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports Left to Suspend = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
 
 	/* Call tc956xmac_suspend() */
 	tc956xmac_suspend(&pdev->dev);
 
 #ifdef DMA_OFFLOAD_ENABLE
-	if (tc956xmac_pm_suspend_counter > SINGLE_PORT_SUSPENDED) {
+	if (tc956xmac_pm_usage_counter == TC956X_ALL_MAC_PORT_SUSPENDED) {
 		DBGPR_FUNC(&(pdev->dev), "%s : Port %d - Tamap Configuration", __func__, priv->port_num);
 		/* Since TAMAP is common for Port0 and Port1,
 		 * Store CM3 TAMAP entries of one Port0*/
@@ -2779,6 +2826,9 @@ static int tc956x_pcie_resume(struct device *dev)
 #ifdef DMA_OFFLOAD_ENABLE
 	u8 i;
 #endif
+#ifdef TC956X_PCIE_GEN3_SETTING
+	u32 val;
+#endif
 
 	DBGPR_FUNC(&(pdev->dev), "-->%s\n", __func__);
 	if (priv->tc956x_port_pm_suspend == false) {
@@ -2798,9 +2848,30 @@ static int tc956x_pcie_resume(struct device *dev)
 		pci_disable_device(pdev);
 		goto err;
 	}
+#ifdef TC956X_PCIE_GEN3_SETTING
+	if (tc956xmac_pm_usage_counter == TC956X_ALL_MAC_PORT_SUSPENDED) {
+		/* Reset Speed to Gen3 after resume */
+		DBGPR_FUNC(&(pdev->dev), "%s : Port %d - Set Speed to Gen3", __func__, priv->port_num);
+		val = readl(priv->ioaddr + TC956X_GLUE_EFUSE_CTRL);
+		if ((val & 0x10) == 0) {
+			DBGPR_FUNC(&(pdev->dev), "<--%s : Applying Gen3 setting\n", __func__);
+			/* 0x4002C01C SSREG_GLUE_EFUSE_CTRL.pcie_usp_gen3_disable_efuse_ignore */
+			writel(0x10, priv->ioaddr + TC956X_GLUE_EFUSE_CTRL);
+			/* 0x4002C030 All PHY_COREs are selected */
+			writel(0x0f, priv->ioaddr + TC956X_GLUE_PHY_REG_ACCESS_CTRL);
+			/* 0x40028000 All Lanes are selected */
+			writel(0x0f , priv->ioaddr + TC956X_PHY_CORE0_GL_LANE_ACCESS);
+			/* 0x4002B268 PMA_LN_PCS2PMA_PHYMODE_R2.pcs2pma_phymode */
+			writel(0x02, priv->ioaddr + TC956X_PMA_LN_PCS2PMA_PHYMODE_R2);
+		}
+	
+		if ((tc956x_speed >= 1) && (tc956x_speed <= 3))
+			tc956x_set_pci_speed(pdev, tc956x_speed);
+	}
+#endif
 
 	/* Configure TA map registers */
-	if (tc956xmac_pm_suspend_counter > SINGLE_PORT_SUSPENDED) {
+	if (tc956xmac_pm_usage_counter == TC956X_ALL_MAC_PORT_SUSPENDED) {
 		DBGPR_FUNC(&(pdev->dev),"%s : Tamap Re-configuration", __func__);
 		tc956x_config_tamap(&pdev->dev, priv->tc956x_BRIDGE_CFG_pci_base_addr);
 #ifdef DMA_OFFLOAD_ENABLE
@@ -2824,15 +2895,9 @@ static int tc956x_pcie_resume(struct device *dev)
 		writel(NEMACIOCTL_DEFAULT, priv->ioaddr + TC9563_CFG_NEMACIOCTL);
 	}
 
-	/* Decrement Suspend counter */
-	ret = tc956xmac_pm_get_counter(priv);
-	if (ret < 0) {
-		DBGPR_FUNC(&(pdev->dev), "%s : (Both Ports Already in Resume State ) \n", __func__);
-		goto err;
-	} else {
-		DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports left to Resume = [%d]) \n", __func__, ret);
-		ret = 0;
-	}
+	/* Increment device usage counter */
+	tc956xmac_pm_usage_counter++;
+	DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports Resumed = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
 
 	priv->tc956x_port_pm_suspend = false;
 
@@ -3064,6 +3129,26 @@ module_param(tc956x_port1_filter_phy_pause_frames, uint, 0444);
 MODULE_PARM_DESC(tc956x_port1_filter_phy_pause_frames,
 		 "Filter PHY pause frames alone and pass Link partner pause frames to application in PORT1 - default is 0,\
 		 [0: DISABLE, 1: ENABLE]");
+
+module_param(tc956x_port0_enable_eee, uint, 0444);
+MODULE_PARM_DESC(tc956x_port0_enable_eee,
+		 "Enable/Disable EEE for Port 0 - default is 0,\
+		 [0: DISABLE, 1: ENABLE]");
+
+module_param(tc956x_port0_lpi_auto_entry_timer, uint, 0444);
+MODULE_PARM_DESC(tc956x_port0_lpi_auto_entry_timer,
+		 "LPI Automatic Entry Timer for Port 0 - default is 600 (us),\
+		 [Range Supported : 0..1048568 (us)]");
+
+module_param(tc956x_port1_enable_eee, uint, 0444);
+MODULE_PARM_DESC(tc956x_port1_enable_eee,
+		 "Enable/Disable EEE for Port 1 - default is 0,\
+		 [0: DISABLE, 1: ENABLE]");
+
+module_param(tc956x_port1_lpi_auto_entry_timer, uint, 0444);
+MODULE_PARM_DESC(tc956x_port1_lpi_auto_entry_timer,
+		 "LPI Automatic Entry Timer for Port 1 - default is 600 (us),\
+		 [Range Supported : 0..1048568 (us)]");
 
 MODULE_DESCRIPTION("TC956X PCI Express Ethernet Network Driver");
 MODULE_AUTHOR("Toshiba Electronic Devices & Storage Corporation");

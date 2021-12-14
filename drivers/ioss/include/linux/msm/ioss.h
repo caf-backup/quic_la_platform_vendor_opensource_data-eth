@@ -328,15 +328,19 @@ struct ioss_device {
 
 	struct dentry *debugfs;
 	struct ioss_interface interface;
-	struct mutex pm_lock;
-	refcount_t pm_refcnt;
-	const struct dev_pm_ops *pm_ops_real;
 
 	struct notifier_block panic_nb;
 
 	struct ethtool_wolinfo wol;
 
 	void *private;
+
+	struct {
+		u64 apps_suspend;
+		u64 apps_resume;
+		u64 system_suspend;
+		u64 system_resume;
+	} pm_stats;
 };
 
 #define to_ioss_device(device) \
@@ -601,10 +605,18 @@ struct ioss_driver {
 
 	/* IOSS managed */
 	struct device_driver drv;
+
+	struct mutex pm_lock;
+	refcount_t pm_refcnt;
+	struct dev_pm_ops pm_ops;
+	const struct dev_pm_ops *pm_ops_real;
 };
 
 #define to_ioss_driver(driver) \
 	container_of(driver, struct ioss_driver, drv)
+
+#define ioss_dev_to_drv(idev) \
+	to_ioss_driver(idev->dev.driver)
 
 struct ioss_driver_ops {
 	int (*open_device)(struct ioss_device *idev);
