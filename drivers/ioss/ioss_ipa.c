@@ -33,6 +33,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	struct ioss_mem *buff_mem;
 	struct ipa_eth_buff_smmu_map *sm;
 	struct ipa_eth_pipe_setup_info *si = &pi->info;
+	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	pi->dir = (ch->direction == IOSS_CH_DIR_TX) ?
 			IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX;
@@ -40,7 +41,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
 	if (!desc_mem) {
-		ioss_dev_err(ch->iface->idev, "Descriptor memory not found");
+		ioss_dev_err(idev, "Descriptor memory not found");
 		return -EINVAL;
 	}
 
@@ -53,7 +54,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	si->data_buff_list = sm = kcalloc(si->data_buff_list_size,
 			sizeof(*si->data_buff_list), GFP_KERNEL);
 	if (!sm) {
-		ioss_dev_err(ch->iface->idev,
+		ioss_dev_err(idev,
 			"Kmalloc failed for data buff list");
 		return -EINVAL;
 	}
@@ -73,7 +74,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	}
 
 	if (ioss_ipa_hal_fill_si(ch)) {
-		ioss_dev_err(ch->iface->idev,
+		ioss_dev_err(idev,
 			"Failed to fill IPA pipe setup info");
 		return -EINVAL;
 	}
@@ -147,9 +148,10 @@ static void ioss_ipa_fill_vlan_hdrs(struct ioss_interface *iface)
 static int ioss_ipa_fill_hdrs(struct ioss_interface *iface)
 {
 	bool ipa_vlan_mode = false;
+	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	if (ipa_is_vlan_mode(IPA_VLAN_IF_EMAC, &ipa_vlan_mode)) {
-		ioss_dev_err(iface->idev, "Failed to get IPA vlan mode");
+		ioss_dev_err(idev, "Failed to get IPA vlan mode");
 		return -EINVAL;
 	}
 
@@ -167,20 +169,21 @@ static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 	struct ipa_eth_perf_profile profile;
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
 
-	ioss_dev_dbg(iface->idev,
+	ioss_dev_dbg(idev,
 		"Voting for IPA bandwidth of %u Mbps", iface->link_speed);
 
 	memset(&profile, 0, sizeof(profile));
 	profile.max_supported_bw_mbps = iface->link_speed;
 
 	if (ipa_eth_client_set_perf_profile(ec, &profile)) {
-		ioss_dev_err(iface->idev,
+		ioss_dev_err(idev,
 				"Failed to set IPA perf profile");
 		return -EINVAL;
 	}
 
-	ioss_dev_cfg(iface->idev,
+	ioss_dev_cfg(idev,
 		"Voted for IPA bandwidth of %u Mbps", iface->link_speed);
 
 	return 0;
@@ -224,14 +227,15 @@ int ioss_ipa_register(struct ioss_interface *iface)
 #if IPA_ETH_API_VER < 2
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 #endif
+	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
 	ec->traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
-	ec->client_type = ioss_ipa_hal_get_ctype(iface);
+	ec->client_type = ioss_ipa_hal_get_ctype(idev);
 
 	if (ec->client_type == IPA_ETH_CLIENT_MAX) {
-		ioss_dev_err(iface->idev, "Failed to determine client type");
+		ioss_dev_err(idev, "Failed to determine client type");
 		return -EFAULT;
 	}
 
@@ -246,7 +250,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		cp->ipa_pi.client_info = ec;
 
 		if (ioss_ipa_fill_pipe_info(ch, &cp->ipa_pi)) {
-			ioss_dev_err(iface->idev, "Failed to fill pipe info");
+			ioss_dev_err(idev, "Failed to fill pipe info");
 			return -EFAULT;
 		}
 
@@ -261,14 +265,14 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	ii->pipe_hdl_list = kcalloc(ii->pipe_hdl_list_size,
 				sizeof(*ii->pipe_hdl_list), GFP_KERNEL);
 	if (!ii->pipe_hdl_list) {
-		ioss_dev_err(iface->idev, "Failed to alloc pipe hdl list");
+		ioss_dev_err(idev, "Failed to alloc pipe hdl list");
 		return -EINVAL;
 	}
 
 	ii->netdev_name = net_dev->name;
 
 	if (ioss_ipa_fill_hdrs(iface)) {
-		ioss_dev_err(iface->idev, "Failed to fill partial headers");
+		ioss_dev_err(idev, "Failed to fill partial headers");
 		return -EINVAL;
 	}
 #endif
@@ -278,13 +282,13 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	ec->net_dev = ioss_iface_to_netdev(iface);
 #endif
 	if (ipa_eth_client_conn_pipes(ec)) {
-		ioss_dev_err(iface->idev, "Failed to connect pipes");
+		ioss_dev_err(idev, "Failed to connect pipes");
 		return -EINVAL;
 	}
 
 	/* vote for bw */
 	if (ioss_ipa_vote_bw(iface)) {
-		ioss_dev_err(iface->idev, "Failed to vote for bandwidth");
+		ioss_dev_err(idev, "Failed to vote for bandwidth");
 		return -EINVAL;
 	}
 
@@ -310,14 +314,14 @@ int ioss_ipa_register(struct ioss_interface *iface)
 #endif
 
 	if (ipa_eth_client_reg_intf(ii)) {
-		ioss_dev_err(iface->idev, "Failed to register interface");
+		ioss_dev_err(idev, "Failed to register interface");
 		return -EINVAL;
 	}
 
 #if IPA_ETH_API_VER < 2
 	/* send ecm msg */
 	if (ioss_ipa_msg_connect(net_dev)) {
-		ioss_dev_err(iface->idev, "Failed to send connect message");
+		ioss_dev_err(idev, "Failed to send connect message");
 		return -EINVAL;
 	}
 #endif
@@ -337,18 +341,19 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	union ioss_ipa_eth_hdr *hdr_v6 = &ifp->ipa_hdr_v6;
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 #endif
+	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	/* connect pipes */
 	rc = ipa_eth_client_disconn_pipes(ec);
 	if (rc) {
-		ioss_dev_err(iface->idev, "Failed to disconnect pipes");
+		ioss_dev_err(idev, "Failed to disconnect pipes");
 		return rc;
 	}
 
 	/* unregister interface */
 	rc = ipa_eth_client_unreg_intf(ii);
 	if (rc) {
-		ioss_dev_err(iface->idev, "Failed to unregister interface");
+		ioss_dev_err(idev, "Failed to unregister interface");
 		return rc;
 	}
 
@@ -356,7 +361,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	/* send ecm msg */
 	rc = ioss_ipa_msg_disconnect(net_dev);
 	if (rc) {
-		ioss_dev_err(iface->idev, "Failed to send disconnect message");
+		ioss_dev_err(idev, "Failed to send disconnect message");
 		return rc;
 	}
 

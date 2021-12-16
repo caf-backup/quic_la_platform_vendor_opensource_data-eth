@@ -47,6 +47,16 @@
  *  VERSION     : 01-00-13
  *  23 Sep 2021 : 1. Filtering All pause frames by default
  *  VERSION     : 01-00-14
+ *  14 Oct 2021 : 1. Configuring pause frame control using kernel module parameter also forwarding
+ *  		  only Link partner pause frames to Application and filtering PHY pause frames using FRP
+ *  VERSION     : 01-00-16
+ *  26 Oct 2021 : 1. Added EEE print in host IRQ and updated EEE configuration.
+ *  VERSION     : 01-00-19
+ *  04 Nov 2021 : 1. Added separate control functons for MAC TX and RX start/stop
+ *  VERSION     : 01-00-20
+ *  24 Nov 2021 : 1. EEE update for runtime configuration and LPI interrupt disabled.
+ 		  2. USXGMII support during link change
+ *  VERSION     : 01-00-24
  */
 
 #include <linux/bitrev.h>
@@ -55,6 +65,9 @@
 #include "tc956xmac.h"
 #include "tc956xmac_ptp.h"
 #include "dwxgmac2.h"
+
+extern unsigned int tc956x_port0_filter_phy_pause_frames;
+extern unsigned int tc956x_port1_filter_phy_pause_frames;
 
 static void tc956x_set_mac_addr(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 				const u8 *mac, int index, int vf);
@@ -91,8 +104,14 @@ static void dwxgmac2_core_init(struct tc956xmac_priv *priv,
 		case SPEED_10000:
 			tx |= hw->link.xgmii.speed10000;
 			break;
+		case SPEED_5000:
+			if (priv->plat->interface == PHY_INTERFACE_MODE_USXGMII)
+				tx |= hw->link.xgmii.speed5000;
+			break;
 		case SPEED_2500:
-			if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII)
+			if (priv->plat->interface == PHY_INTERFACE_MODE_USXGMII)
+				tx |= hw->link.xgmii.speed2500;
+			else
 				tx |= hw->link.speed2500;
 			break;
 		case SPEED_1000:
@@ -112,8 +131,9 @@ static void dwxgmac2_core_init(struct tc956xmac_priv *priv,
 #endif
 	writel(tx, ioaddr + XGMAC_TX_CONFIG);
 	writel(rx, ioaddr + XGMAC_RX_CONFIG);
+#ifdef TC956X_LPI_INTERRUPT
 	writel(XGMAC_INT_DEFAULT_EN, ioaddr + XGMAC_INT_EN);
-
+#endif
 	netdev_dbg(priv->dev, "%s: MAC TX Config = 0x%x", __func__,
 			readl(ioaddr + XGMAC_TX_CONFIG));
 
@@ -136,6 +156,34 @@ static void dwxgmac2_set_mac(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 	}
 
 	writel(tx, ioaddr + XGMAC_TX_CONFIG);
+	writel(rx, ioaddr + XGMAC_RX_CONFIG);
+}
+
+static void dwxgmac2_set_mac_tx(struct tc956xmac_priv *priv, void __iomem *ioaddr,
+					bool enable)
+{
+	u32 tx = readl(ioaddr + XGMAC_TX_CONFIG);
+
+	if (enable) {
+		tx |= XGMAC_CONFIG_TE;
+	} else {
+		tx &= ~XGMAC_CONFIG_TE;
+	}
+
+	writel(tx, ioaddr + XGMAC_TX_CONFIG);
+}
+
+static void dwxgmac2_set_mac_rx(struct tc956xmac_priv *priv, void __iomem *ioaddr,
+					bool enable)
+{
+	u32 rx = readl(ioaddr + XGMAC_RX_CONFIG);
+
+	if (enable) {
+		rx |= XGMAC_CONFIG_RE;
+	} else {
+		rx &= ~XGMAC_CONFIG_RE;
+	}
+
 	writel(rx, ioaddr + XGMAC_RX_CONFIG);
 }
 
@@ -422,6 +470,10 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 	void __iomem *ioaddr = hw->pcsr;
 	u32 stat, en;
 	int ret = 0;
+#ifdef EEE
+	int val;
+#endif
+
 
 	en = readl(ioaddr + XGMAC_INT_EN);
 	stat = readl(ioaddr + XGMAC_INT_STATUS);
@@ -437,17 +489,40 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 		u32 lpi = readl(ioaddr + XGMAC_LPI_CTRL);
 
 		if (lpi & XGMAC_TLPIEN) {
+			KPRINT_INFO("Transmit LPI Entry..... \n");
 			ret |= CORE_IRQ_TX_PATH_IN_LPI_MODE;
 			x->irq_tx_path_in_lpi_mode_n++;
 		}
 		if (lpi & XGMAC_TLPIEX) {
+			KPRINT_INFO("Transmit LPI Exit.....\n");
 			ret |= CORE_IRQ_TX_PATH_EXIT_LPI_MODE;
 			x->irq_tx_path_exit_lpi_mode_n++;
 		}
-		if (lpi & XGMAC_RLPIEN)
+		if (lpi & XGMAC_RLPIEN) {
+			KPRINT_INFO("Receive LPI Entry....... \n");
 			x->irq_rx_path_in_lpi_mode_n++;
-		if (lpi & XGMAC_RLPIEX)
+		}
+		if (lpi & XGMAC_RLPIEX) {
+			KPRINT_INFO("Receive LPI Exit...... \n");
 			x->irq_rx_path_exit_lpi_mode_n++;
+		}
+
+#ifdef EEE
+		val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_STS);
+		KPRINT_INFO("XPCS LPI status : %x........\n", val);
+		if (val & XGMAC_LTX_LRX_STATE) {
+			if (val & XGMAC_LPI_RECEIVE_STATE)
+				KPRINT_INFO("XPCS LPI Receive State.........\n");
+			if (val & XGMAC_LPI_TRANSMIT_STATE)
+				KPRINT_INFO("XPCS LPI transmit state.....\n");
+		}
+
+		val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_XS_PCS_STS1);
+		if ( val & XGMAC_RX_LPI_RECEIVE)
+			KPRINT_INFO("XPCS RX LPI Received......");
+		if ( val & XGAMC_TX_LPI_RECEIVE)
+			KPRINT_INFO("XPCS TX LPI Received......");
+#endif
 	}
 
 	return ret;
@@ -563,7 +638,9 @@ static void dwxgmac2_set_eee_mode(struct tc956xmac_priv *priv,
 	value |= XGMAC_LPITXEN | XGMAC_LPITXA;
 	if (en_tx_lpi_clockgating)
 		value |= XGMAC_TXCGE;
-
+#ifdef EEE_MAC_CONTROLLED_MODE
+	value |= XGMAC_PLS | XGMAC_PLSDIS | XGMAC_LPIATE;
+#endif
 	writel(value, ioaddr + XGMAC_LPI_CTRL);
 }
 
@@ -575,6 +652,9 @@ static void dwxgmac2_reset_eee_mode(struct tc956xmac_priv *priv,
 
 	value = readl(ioaddr + XGMAC_LPI_CTRL);
 	value &= ~(XGMAC_LPITXEN | XGMAC_LPITXA | XGMAC_TXCGE);
+#ifdef EEE_MAC_CONTROLLED_MODE
+	value &= ~(XGMAC_PLS | XGMAC_PLSDIS | XGMAC_LPIATE);
+#endif
 	writel(value, ioaddr + XGMAC_LPI_CTRL);
 }
 
@@ -947,6 +1027,12 @@ static void dwxgmac2_set_filter(struct tc956xmac_priv *priv, struct mac_device_i
 	value &= ~(XGMAC_FILTER_PR | XGMAC_FILTER_HMC | XGMAC_FILTER_PM |
 		   XGMAC_FILTER_RA| BIT(6) | BIT(7));
 	value |= XGMAC_FILTER_HPF;
+	/* Configuring to Pass all pause frames to application, PHY pause frames will be filtered by FRP */
+	if ((tc956x_port0_filter_phy_pause_frames == ENABLE && priv->port_num == RM_PF0_ID) ||
+	   (tc956x_port1_filter_phy_pause_frames == ENABLE && priv->port_num == RM_PF1_ID)) {
+		/* setting pcf to 0b10 i.e. pass pause frames of address filter fail to Application */
+		value |= 0x80;
+	}
 	writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	if (dev->flags & IFF_PROMISC) {
 		value |= XGMAC_FILTER_PR;
@@ -2096,7 +2182,7 @@ static void dwxgmac2_disable_tx_vlan(struct tc956xmac_priv *priv,
 	value = readl(ioaddr + XGMAC_VLAN_INCL);
 	value &= ~XGMAC_VLAN_VLTI;
 	value &= ~XGMAC_VLAN_VLC;
-	writel(value, ioaddr + XGMAC_VLAN_INCL);	
+	writel(value, ioaddr + XGMAC_VLAN_INCL);
 }
 
 static void dwxgmac2_enable_rx_vlan_stripping(struct tc956xmac_priv *priv,
@@ -2691,6 +2777,8 @@ static void tc956x_enable_jumbo_frm(struct tc956xmac_priv *priv,
 const struct tc956xmac_ops dwxgmac210_ops = {
 	.core_init = dwxgmac2_core_init,
 	.set_mac = dwxgmac2_set_mac,
+	.set_mac_tx = dwxgmac2_set_mac_tx,
+	.set_mac_rx = dwxgmac2_set_mac_rx,
 	.rx_ipc = dwxgmac2_rx_ipc,
 	.rx_queue_enable = dwxgmac2_rx_queue_enable,
 	.rx_queue_prio = dwxgmac2_rx_queue_prio,

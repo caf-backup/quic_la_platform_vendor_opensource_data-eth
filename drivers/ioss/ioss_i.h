@@ -55,6 +55,8 @@ extern unsigned long ioss_api_ver;
 
 int ioss_pci_start(struct ioss *ioss);
 void ioss_pci_stop(struct ioss *ioss);
+void ioss_pci_hijack_pm_ops(struct ioss_device *idev);
+void ioss_pci_restore_pm_ops(struct ioss_device *idev);
 int ioss_pci_enable_pc(struct ioss_device *idev);
 int ioss_pci_disable_pc(struct ioss_device *idev);
 
@@ -67,7 +69,7 @@ struct platform_device *ioss_find_dev_from_of_node(
 int ioss_ipa_register(struct ioss_interface *iface);
 int ioss_ipa_unregister(struct ioss_interface *iface);
 
-enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_interface *iface);
+enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_device *idev);
 int ioss_ipa_hal_fill_si(struct ioss_channel *ch);
 
 int ioss_bus_register_driver(struct ioss_driver *idrv);

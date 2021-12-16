@@ -64,6 +64,42 @@
  *  VERSION     : 01-00-13
  *  23 Sep 2021 : 1. Version update
  *  VERSION     : 01-00-14
+ *  29 Sep 2021 : 1. Version update
+ *  VERSION     : 01-00-15
+ *  14 Oct 2021 : 1. Version update
+ *  VERSION     : 01-00-16
+ *  19 Oct 2021 : 1. Adding M3 SRAM Debug counters to ethtool statistics
+ *		: 2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+ *		: 3. Version update
+ *  VERSION     : 01-00-17
+ *  21 Oct 2021 : 1. Added support for GPIO configuration API
+ *		: 2. Version update 
+ *  VERSION     : 01-00-18
+ *  26 Oct 2021 : 1. Updated Driver Module Version.
+		: 2. Added variable for port-wise suspend status.
+		: 3. Added macro to control EEE MAC Control.
+ *  VERSION     : 01-00-19
+ *  04 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-20
+ *  08 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-21
+ *  24 Nov 2021 : 1. Version update
+ 		  2. Private member used instead of global for wol interrupt indication
+ *  VERSION     : 01-00-22
+ *  24 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-23
+ *  24 Nov 2021 : 1. EEE macro enabled by default.
+ 		  2. Module param support for EEE configuration
+		  3. Version update
+ *  VERSION     : 01-00-24
+ *  30 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-25
+ *  30 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-26
+ *  01 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-27
+ *  01 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-28
  */
 
 #ifndef __TC956XMAC_H__
@@ -85,6 +121,10 @@
 //#define TC956X_LOAD_FW_HEADER
 #define PF_DRIVER 4
 
+/* Uncomment EEE_MAC_CONTROLLED_MODE macro for MAC controlled EEE Mode & comment for PHY controlled EEE mode */
+#define EEE_MAC_CONTROLLED_MODE
+/* Uncomment TC956X_5_G_2_5_G_EEE_SUPPORT macro for enabling EEE support for 5G and 2.5G */
+#define TC956X_5_G_2_5_G_EEE_SUPPORT
 // #define CONFIG_TC956XMAC_SELFTESTS  /*Enable this macro to test Feature selftest*/
 
 #ifdef TC956X
@@ -112,7 +152,7 @@
 #ifdef TC956X
 
 #define TC956X_RESOURCE_NAME	"tc956x_pci-eth"
-#define DRV_MODULE_VERSION	"V_01-00-14"
+#define DRV_MODULE_VERSION	"V_01-00-28"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 
 #define ATR_AXI4_SLV_BASE		0x0800
@@ -168,6 +208,30 @@
 #endif
 
 #define TC956X_M3_SRAM_FW_VER_OFFSET 0x4F900 /* DMEM addrs 0x2000F900 */
+/* M3 Debug Counters in SRAM*/
+#define TC956X_M3_SRAM_DEBUG_CNTS_OFFSET	0x4F800 /* DMEM addrs 0x2000F800 */
+
+#define DB_CNT_LEN	4	/* Size of each debug counter in bytes */
+#define DB_CNT0		0	/* reserved0 */
+#define DB_CNT1		1	/* reserved1 */
+#define DB_CNT2		2	/* reserved2 */
+#define DB_CNT3		3	/* reserved3 */
+#define DB_CNT4		4	/* reserved4 */
+#define DB_CNT5		5	/* reserved5 */
+#define DB_CNT6		6	/* reserved6 */
+#define DB_CNT7		7	/* reserved7 */
+#define DB_CNT8		8	/* reserved8 */
+#define DB_CNT9		9	/* reserved9 */
+#define DB_CNT10	10	/* reserved10 */
+#define DB_CNT11	11	/* m3 watchdog expiry count*/
+#define DB_CNT12	12	/* m3 watchdog monitor value */
+#define DB_CNT13	13	/* reserved13 */
+#define DB_CNT14	14	/* reserved14 */
+#define DB_CNT15	15	/* m3 systick counter lower 32bits  */
+#define DB_CNT16	16	/* m3 systick counter upper 32bits */
+#define DB_CNT17	17	/* m3 transmission timeout indication for port0 */
+#define DB_CNT18	18	/* m3 transmission timeout indication for port1 */
+#define DB_CNT19	19	/* reserved19 */
 
 #define NRSTCTRL0_RST_ASRT 0x1
 #define NRSTCTRL0_RST_DE_ASRT 0x3
@@ -259,6 +323,8 @@ struct tc956xmac_resources {
 #ifdef TC956X
 	unsigned int port_num;
 	unsigned int port_interface; /* Kernel module parameter variable for interface */
+	unsigned int eee_enabled; /* Parameter to store kernel module parameter to enable/disable EEE */
+	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
 };
 
@@ -473,11 +539,10 @@ struct tc956xmac_priv {
 	int wolopts;
 	int wol_irq;
 	int clk_csr;
-	struct timer_list eee_ctrl_timer;
 	int lpi_irq;
-	int eee_enabled;
+	unsigned int eee_enabled;
 	int eee_active;
-	int tx_lpi_timer;
+	unsigned int tx_lpi_timer;
 	unsigned int mode;
 	unsigned int chain_mode;
 	int extend_desc;
@@ -540,6 +605,8 @@ struct tc956xmac_priv {
 	u32 phy_loopback_mode;
 	bool is_sgmii_2p5g; /* For 2.5G SGMI, XPCS doesn't support AN. This flag is to identify 2.5G Speed for SGMII interface. */
 	u32 port_interface; /* Kernel module parameter variable for interface */
+	bool tc956x_port_pm_suspend; /* Port Suspend Status; True : port suspended, False : port resume */
+	bool tc956xmac_pm_wol_interrupt; /* Port-wise flag for clearing interrupt after resume. */
 #endif
 
 	/* set to 1 when ptp offload is enabled, else 0. */
@@ -671,5 +738,6 @@ static inline int tc956x_platform_suspend(struct tc956xmac_priv *priv) { return 
 static inline int tc956x_platform_resume(struct tc956xmac_priv *priv) { return 0; }
 #endif
 
+int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 out_value);
 
 #endif /* __TC956XMAC_H__ */

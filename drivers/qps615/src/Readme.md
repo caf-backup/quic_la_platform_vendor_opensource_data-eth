@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 23 Sep 2021
+Release Date: 01 Dec 2021
 
-Release Version: V_01-00-14 : Limited-tested version
+Release Version: V_01-00-28 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -122,34 +122,87 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 	#define EP_L0s_ENTRY_DELAY	(0x1FU)
 	#define EP_L1_ENTRY_DELAY	(0x3FFU)
 
-Formula:
-	L0 entry delay = XXX_L0s_ENTRY_DELAY * 256 ns
-	L1 entry delay = XXX_L1_ENTRY_DELAY * 256 ns
-	
-	XXX_L0s_ENTRY_DELAY range: 1-31
-	XXX_L1_ENTRY_DELAY: 1-1023
+	Formula:
+		L0 entry delay = XXX_L0s_ENTRY_DELAY * 256 ns
+		L1 entry delay = XXX_L1_ENTRY_DELAY * 256 ns
+		
+		XXX_L0s_ENTRY_DELAY range: 1-31
+		XXX_L1_ENTRY_DELAY: 1-1023
 
 9. To check vlan feature status execute:
 	ethtool -k <interface> | grep vlan
 
-To enable/disable following vlan features execute:
-	(a) rx-vlan-filter:
-		ethtool -K <interface> rx-vlan-filter <on|off>
-	(b) rx-vlan-offload:
-		ethtool -K <interface> rxvlan <on|off>
-	(c) tx-vlan-offload:
-		ethtool -K <interface> txvlan <on|off>
+	To enable/disable following vlan features execute:
+		(a) rx-vlan-filter:
+			ethtool -K <interface> rx-vlan-filter <on|off>
+		(b) rx-vlan-offload:
+			ethtool -K <interface> rxvlan <on|off>
+		(c) tx-vlan-offload:
+			ethtool -K <interface> txvlan <on|off>
 
-Use following to configure VLAN:
-	(a) modprobe 8021q
-	(b) vconfig add <interface> <vlanid>
-	(c) vconfig set_flag <interface>.<vlanid> 1 0
-	(d) ifconfig <interface>.<vlanid> <ip> netmask 255.255.255.0 broadcast <ip mask> up
+	Use following to configure VLAN:
+		(a) modprobe 8021q
+		(b) vconfig add <interface> <vlanid>
+		(c) vconfig set_flag <interface>.<vlanid> 1 0
+		(d) ifconfig <interface>.<vlanid> <ip> netmask 255.255.255.0 broadcast <ip mask> up
 
-Default Configuraton:
-	(a) Rx vlan filter is disabled.
-	(b) Rx valn offload (vlan stripping) is disabled.
-	(c) Tx vlan offload is enabled.
+	Default Configuraton:
+		(a) Rx vlan filter is disabled.
+		(b) Rx valn offload (vlan stripping) is disabled.
+		(c) Tx vlan offload is enabled.
+
+10. Please use the below command to insert the kernel module for passing pause frames to application except pause frames from PHY:
+
+	#insmod tc956x_pcie_eth.ko tc956x_port0_filter_phy_pause_frames=x tc956x_port1_filter_phy_pause_frames=x
+
+	argument info:
+		tc956x_port0_filter_phy_pause_frames: For PORT0
+		tc956x_port1_filter_phy_pause_frames: For PORT1
+		x = [0: DISABLE (default), 1: ENABLE]
+
+	If invalid values are passed as kernel module parameter, the default value will be selected.
+
+11. Use below commands to check WOL support and its type:
+	#ethtool <interface>
+
+12. WOL command Usage :
+	#ethtool -s <interface> wol <type - p/g/d>.
+
+	Supported WOL options and meaning:
+	
+	| Option | Meaning |
+	| :-----: | :----: |
+	|  p	  |  Wake on phy activity |
+	|  g	  |  Wake on MagicPacket(tm) |
+	|  d	  |  Disable (wake on nothing). (Default) |
+
+	Example - To wake on phy activity and magic packet use :
+	ethtool -s eth0 wol pg
+
+13. Please use the below command to insert the kernel module to enable EEE and configure LPI Auto Entry timer:
+
+	#insmod tc956x_pcie_eth.ko tc956x_port0_enable_eee=X tc956x_port0_lpi_auto_entry_timer=Y tc956x_port1_enable_eee=X tc956x_port1_lpi_auto_entry_timer=Y
+
+	argument info:
+
+		tc956x_port0_enable_eee: For PORT0
+		tc956x_port1_enable_eee: For PORT1
+		X = [0: DISABLE (default), 1: ENABLE]
+		This module parameter is to Enable/Disable EEE for Port 0/1 - default is 0.
+		If invalid values are passed as kernel module parameter, the default value will be selected.		
+
+		tc956x_port0_lpi_auto_entry_timer: For PORT0
+		tc956x_port1_lpi_auto_entry_timer: For PORT1
+		Y = [0..1048568 (us)]
+		This module parameter is to configure LPI Automatic Entry Timer for Port 0/1 - default is 600 (us).
+		If invalid values are passed as kernel module parameter, the default value will be selected.		
+
+	In addition to above module parameter, use below ethtool command to configure EEE and LPI auto entry timer.
+	#ethtool --set-eee <interfcae> eee <on/off> tx-timer <time in us>
+	Example: #ethtool --set-eee enp7s0f0 eee on tx-timer 10000
+
+	Use below command to check the status of EEE configuration
+	#ethtool --show-eee <interface>
 
 # Release Versions:
 
@@ -229,3 +282,69 @@ Default Configuraton:
 1. Updated RX Queue Threshold limits for Activating and Deactivating Flow control 
 2. Filtering All pause frames by default.
 3. Capturing RBU status and updating to ethtool statistics for both S/W & IPA DMA channels
+
+## TC956X_Host_Driver_20210929_V_01-00-15:
+
+1. Added check for Device presence before changing PCIe ports speed.
+
+## TC956X_Host_Driver_20211014_V_01-00-16:
+
+1. Configuring pause frame control using kernel module parameter also forwarding only Link partner pause frames to Application and filtering PHY pause frames using FRP.
+2. Returning error on disabling Receive Flow Control via ethtool for speed other than 10G in XFI mode.
+
+## TC956X_Host_Driver_20211019_V_01-00-17:
+
+1. Added M3 SRAM Debug counters to ethtool statistics.
+2. Added MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+
+## TC956X_Host_Driver_20211021_V_01-00-18:
+
+1. Added support for GPIO configuration API
+
+## TC956X_Host_Driver_20211025_V_01-00-19:
+
+1. Added PM support for suspend-resume.
+2. Added WOL Interrupt Handler and ethtool Support.
+3. Updated EEE support for PHY and MAC Control. (EEE macros are not enabled as EEE LPI interrupts disable are still under validation)
+
+## TC956X_Host_Driver_20211104_V_01-00-20:
+
+1. Added separate control functions for MAC TX and RX start/stop.
+2. Stopped disabling/enabling of MAC TX during Link down/up.
+3. Disabled link state latency configuration for all PCIe ports by default 
+
+## TC956X_Host_Driver_20211108_V_01-00-21:
+
+1. Skip queuing PHY Work during suspend and cancel any phy work if already queued.
+2. Restore Gen 3 Speed after resume.
+
+## TC956X_Host_Driver_20211124_V_01-00-22:
+
+1. Single port Suspend/Resume supported
+
+## TC956X_Host_Driver_20211124_V_01-00-23:
+
+1. Restricted MDIO access when no PHY found or MDIO registration fails
+2. Added mdio lock for making mii bus of private member to null to avoid parallel accessing to MDIO bus
+
+## TC956X_Host_Driver_20211124_V_01-00-24:
+
+1. Runtime configuration of EEE supported and LPI interrupts disabled by default.
+2. Module param added to configure EEE and LPI timer.
+3. Driver name corrected in ethtool display.
+
+## TC956X_Host_Driver_20211130_V_01-00-25:
+
+1. Print message correction for PCIe BAR size and Physical Address.
+
+## TC956X_Host_Driver_20211130_V_01-00-26:
+
+1. Added PHY Workqueue Cancel during suspend only if network interface available.
+
+## TC956X_Host_Driver_20211201_V_01-00-27:
+
+1. Free EMAC IRQ during suspend and request EMAC IRQ during resume.
+
+## TC956X_Host_Driver_20211201_V_01-00-28:
+
+1. Resetting SRAM Region before loading firmware.

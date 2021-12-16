@@ -10,11 +10,12 @@
 
 typedef int (*of_parser_t)(struct ioss_device *idev, struct device_node *np);
 
-static int ioss_of_parse_channel(struct ioss_interface *iface,
+static int ioss_of_parse_channel(struct ioss_device *idev,
 		struct device_node *np)
 {
 	const char *key;
 	struct ioss_channel *ch = NULL;
+	struct ioss_interface *iface = &idev->interface;
 
 	ch = kzalloc(sizeof(*ch), GFP_KERNEL);
 	if (!ch)
@@ -41,37 +42,37 @@ static int ioss_of_parse_channel(struct ioss_interface *iface,
 
 	key = "qcom,ring-size";
 	if (of_property_read_u32(np, key, &ch->default_config.ring_size)) {
-		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
+		ioss_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = "qcom,buff-size";
 	if (of_property_read_u32(np, key, &ch->default_config.buff_size)) {
-		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
+		ioss_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = "qcom,mod-count-min";
 	if (of_property_read_u32(np, key, &ch->event.mod_count_min)) {
-		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
+		ioss_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = "qcom,mod-count-max";
 	if (of_property_read_u32(np, key, &ch->event.mod_count_max)) {
-		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
+		ioss_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = "qcom,mod-usecs-min";
 	if (of_property_read_u32(np, key, &ch->event.mod_usecs_min)) {
-		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
+		ioss_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = "qcom,mod-usecs-max";
 	if (of_property_read_u32(np, key, &ch->event.mod_usecs_max)) {
-		ioss_dev_err(iface->idev, "Failed to parse key %s", key);
+		ioss_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
@@ -95,33 +96,15 @@ err:
 	return -EINVAL;
 }
 
-static int ioss_of_parse_interface(struct ioss_device *idev,
-		struct device_node *np)
+static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 {
 	int i, count;
 	const char *key;
-	struct ioss_interface *iface;
-
-	iface = kzalloc(sizeof(*iface), GFP_KERNEL);
-	if (!iface)
-		return -ENOMEM;
+	struct ioss_interface *iface = &idev->interface;
 
 	iface->ioss_priv = kzalloc(sizeof(struct ioss_iface_priv), GFP_KERNEL);
-	if (!iface->ioss_priv) {
-		kfree(iface);
+	if (!iface->ioss_priv)
 		return -ENOMEM;
-	}
-
-	INIT_LIST_HEAD(&iface->node);
-	INIT_LIST_HEAD(&iface->channels);
-
-	iface->idev = idev;
-
-	key = "qcom,name";
-	if (of_property_read_string(np, key, &iface->name)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
-		goto err;
-	}
 
 	key = "qcom,ioss_instance";
 	if (of_property_read_u32(np, key, &iface->instance_id)) {
@@ -142,13 +125,17 @@ static int ioss_of_parse_interface(struct ioss_device *idev,
 		struct device_node *n = of_parse_phandle(np,
 						"qcom,ioss_channels", i);
 
-		if (ioss_of_parse_channel(iface, n)) {
+		if (ioss_of_parse_channel(idev, n)) {
 			ioss_dev_err(idev, "Failed to parse channel[%d]", i);
 			goto err;
 		}
 	}
 
-	list_add_tail(&iface->node, &idev->interfaces);
+	if (!!of_find_property(np, "qcom,ioss-wol-phy", NULL))
+		idev->wol.wolopts |= WAKE_PHY;
+
+	if (!!of_find_property(np, "qcom,ioss-wol-magic", NULL))
+		idev->wol.wolopts |= WAKE_MAGIC;
 
 	return 0;
 
@@ -164,40 +151,8 @@ err:
 	}
 
 	kfree(iface->ioss_priv);
-	kfree(iface);
 
-	return -EFAULT;
-}
-
-static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
-{
-	int i, count;
-	const char *key;
-
-	key = "qcom,ioss_interfaces";
-	count = of_count_phandle_with_args(np, key, NULL);
-	if (count < 0) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
-		return -EFAULT;
-	}
-
-	/* Get interface configs */
-
-	for (i = 0; i < count; i++) {
-		struct device_node *n = of_parse_phandle(np,
-						"qcom,ioss_interfaces", i);
-
-		if (ioss_of_parse_interface(idev, n)) {
-			ioss_dev_err(idev, "Failed to parse interface[%d]", i);
-
-			/* Cleanup will be done during ioss_bus_free_device().
-			 * Return error now.
-			 */
-			return -EFAULT;
-		}
-	}
-
-	return 0;
+	return -EINVAL;
 }
 
 static const struct of_device_id ioss_dev_match_table[] = {

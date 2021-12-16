@@ -36,6 +36,16 @@
  *  VERSION     : 01-00-01
  *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
  *  VERSION     : 01-00-02
+ *  14 Oct 2021 : 1. Returning error on disabling Receive Flow Control via ethtool for speed other than 10G in XFI mode.
+ *  VERSION     : 01-00-16
+ *  19 Oct 2021 : 1. Adding M3 SRAM Debug counters to ethtool statistics
+ *                2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+ *  VERSION     : 01-00-17
+ *  26 Oct 2021 : 1. Added set_wol and get_wol support using ethtool.
+ *  VERSION     : 01-00-19
+ *  24 Nov 2021 : 1. EEE update for runtime configuration through ethtool.
+		  2. ethtool driver name display corrected
+ *  VERSION     : 01-00-24 
  */
 
 #include <linux/etherdevice.h>
@@ -52,7 +62,7 @@
 #define REG_SPACE_SIZE	11512/*Total Reg Len*/
 #define MAC100_ETHTOOL_NAME	"tc956x_mac100"
 #define GMAC_ETHTOOL_NAME	"tc956x_gmac"
-#define XGMAC_ETHTOOL_NAME	"tc956x_xgmac"
+#define XGMAC_ETHTOOL_NAME	TC956X_RESOURCE_NAME
 
 #define ETHTOOL_DMA_OFFSET	55
 
@@ -603,6 +613,59 @@ static const struct tc956xmac_stats tc956xmac_gstrings_stats[] = {
 	TC956XMAC_STAT(xpcs_intr_n),
 	TC956XMAC_STAT(phy_intr_n),
 	TC956XMAC_STAT(sw_msi_n),
+	TC956XMAC_STAT(mtl_tx_underflow[0]),
+	TC956XMAC_STAT(mtl_tx_underflow[1]),
+	TC956XMAC_STAT(mtl_tx_underflow[3]),
+	TC956XMAC_STAT(mtl_tx_underflow[4]),
+	TC956XMAC_STAT(mtl_tx_underflow[5]),
+	TC956XMAC_STAT(mtl_tx_underflow[6]),
+	TC956XMAC_STAT(mtl_tx_underflow[7]),
+
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[0]),
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[1]),
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[3]),
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[4]),
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[5]),
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[6]),
+	TC956XMAC_STAT(mtl_rx_miss_pkt_cnt[7]),
+
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[0]),
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[1]),
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[3]),
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[4]),
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[5]),
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[6]),
+	TC956XMAC_STAT(mtl_rx_overflow_pkt_cnt[7]),
+
+	TC956XMAC_STAT(rxch_watchdog_timer[0]),
+	TC956XMAC_STAT(rxch_watchdog_timer[1]),
+	TC956XMAC_STAT(rxch_watchdog_timer[2]),
+	TC956XMAC_STAT(rxch_watchdog_timer[3]),
+	TC956XMAC_STAT(rxch_watchdog_timer[4]),
+	TC956XMAC_STAT(rxch_watchdog_timer[5]),
+	TC956XMAC_STAT(rxch_watchdog_timer[6]),
+	TC956XMAC_STAT(rxch_watchdog_timer[7]),
+
+	TC956XMAC_STAT(m3_debug_cnt0),
+	TC956XMAC_STAT(m3_debug_cnt1),
+	TC956XMAC_STAT(m3_debug_cnt2),
+	TC956XMAC_STAT(m3_debug_cnt3),
+	TC956XMAC_STAT(m3_debug_cnt4),
+	TC956XMAC_STAT(m3_debug_cnt5),
+	TC956XMAC_STAT(m3_debug_cnt6),
+	TC956XMAC_STAT(m3_debug_cnt7),
+	TC956XMAC_STAT(m3_debug_cnt8),
+	TC956XMAC_STAT(m3_debug_cnt9),
+	TC956XMAC_STAT(m3_debug_cnt10),
+	TC956XMAC_STAT(m3_watchdog_exp_cnt),
+	TC956XMAC_STAT(m3_watchdog_monitor_cnt),
+	TC956XMAC_STAT(m3_debug_cnt13),
+	TC956XMAC_STAT(m3_debug_cnt14),
+	TC956XMAC_STAT(m3_systick_cnt_upper_value),
+	TC956XMAC_STAT(m3_systick_cnt_lower_value),
+	TC956XMAC_STAT(m3_tx_timeout_port0),
+	TC956XMAC_STAT(m3_tx_timeout_port1),
+	TC956XMAC_STAT(m3_debug_cnt19),
 };
 #define TC956XMAC_STATS_LEN ARRAY_SIZE(tc956xmac_gstrings_stats)
 
@@ -637,6 +700,8 @@ static const struct tc956xmac_stats tc956xmac_mmc[] = {
 	TC956XMAC_MMC_STAT(mmc_tx_excessdef),
 	TC956XMAC_MMC_STAT(mmc_tx_pause_frame),
 	TC956XMAC_MMC_STAT(mmc_tx_vlan_frame_g),
+	TC956XMAC_MMC_STAT(mmc_tx_lpi_tran_cntr),
+	TC956XMAC_MMC_STAT(mmc_rx_lpi_tran_cntr),
 	TC956XMAC_MMC_STAT(mmc_rx_framecount_gb),
 	TC956XMAC_MMC_STAT(mmc_rx_octetcount_gb),
 	TC956XMAC_MMC_STAT(mmc_rx_octetcount_g),
@@ -962,6 +1027,11 @@ tc956xmac_set_pauseparam(struct net_device *netdev,
 	u32 tx_cnt = priv->plat->tx_queues_to_use;
 	struct phy_device *phy = netdev->phydev;
 
+	if ((priv->plat->port_interface == ENABLE_XFI_INTERFACE) && (priv->speed != SPEED_10000) && (!(pause->rx_pause))) {
+		KPRINT_ERR("RX Flow ctrl shouldn't be disabled for 10G lower speed in XFI Interface\n");
+		return -EOPNOTSUPP;
+	}
+
 	if (priv->hw->pcs &&
 	    !tc956xmac_pcs_get_adv_lp(priv, priv->ioaddr, &adv_lp)) {
 		pause->autoneg = 1;
@@ -980,6 +1050,74 @@ tc956xmac_set_pauseparam(struct net_device *netdev,
 	tc956xmac_flow_ctrl(priv, priv->hw, phy->duplex, priv->flow_ctrl,
 				 priv->pause, tx_cnt);
 	return 0;
+}
+static void tc956xmac_m3fw_stats_read(struct tc956xmac_priv *priv)
+{
+	u32 rx_queues_count = priv->plat->rx_queues_to_use;
+	u32 tx_queues_count = priv->plat->tx_queues_to_use;
+	u32 chno, reg_val=0;
+
+	for (chno = 0; chno < tx_queues_count; chno++) {
+		/* Tx Underflow count may not match with actual value, as it is 11bit value
+		accumulation happening only when reading ethool statistics, not after overflow of counter*/
+		priv->xstats.mtl_tx_underflow[chno] +=
+			readl(priv->ioaddr + XGMAC_MTL_TXQ_UFPKT_CNT(chno));
+	}
+	for (chno = 0; chno < rx_queues_count; chno++) {
+		/* Rx overflow/missed pkt count may not match with actual values, as these are 11bit values
+		accumulation happening only when reading ethool statistics, not after overflow of counters*/
+		reg_val = readl(priv->ioaddr + XGMAC_MTL_RXQ_MISS_PKT_OF_CNT_OFFSET(chno));
+
+		priv->xstats.mtl_rx_miss_pkt_cnt[chno] += ((reg_val & XGMAC_MISPKTCNT_MASK) >>
+								XGMAC_MISPKTCNT_SHIFT);
+
+		priv->xstats.mtl_rx_overflow_pkt_cnt[chno] += (reg_val & XGMAC_OVFPKTCNT_MASK);
+
+		priv->xstats.rxch_watchdog_timer[chno] =
+			readl(priv->ioaddr + XGMAC_DMA_CH_Rx_WATCHDOG(chno));
+	}
+	/* Reading M3 Debug Counters*/
+	priv->xstats.m3_debug_cnt0 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT0 )));
+	priv->xstats.m3_debug_cnt1 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT1 )));
+	priv->xstats.m3_debug_cnt2 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT2 )));
+	priv->xstats.m3_debug_cnt3 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT3 )));
+	priv->xstats.m3_debug_cnt4 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT4 )));
+	priv->xstats.m3_debug_cnt5 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT5 )));
+	priv->xstats.m3_debug_cnt6 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT6 )));
+	priv->xstats.m3_debug_cnt7 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT7 )));
+	priv->xstats.m3_debug_cnt8 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT8 )));
+	priv->xstats.m3_debug_cnt9 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT9 )));
+	priv->xstats.m3_debug_cnt10 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT10 )));
+	priv->xstats.m3_watchdog_exp_cnt = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT11 )));
+	priv->xstats.m3_watchdog_monitor_cnt = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT12 )));
+	priv->xstats.m3_debug_cnt13 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT13 )));
+	priv->xstats.m3_debug_cnt14 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT14 )));
+	priv->xstats.m3_systick_cnt_upper_value = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT16 )));
+	priv->xstats.m3_systick_cnt_lower_value = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT15 )));
+	priv->xstats.m3_tx_timeout_port0 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT17 )));
+	priv->xstats.m3_tx_timeout_port1 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT18 )));
+	priv->xstats.m3_debug_cnt19 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT19 )));
+
 }
 
 static void tc956xmac_get_ethtool_stats(struct net_device *dev,
@@ -1033,6 +1171,7 @@ static void tc956xmac_get_ethtool_stats(struct net_device *dev,
 			tc956xmac_dma_desc_stats(priv, priv->ioaddr);
 		}
 	}
+	tc956xmac_m3fw_stats_read(priv);
 	for (i = 0; i < TC956XMAC_STATS_LEN; i++) {
 		char *p = (char *)priv + tc956xmac_gstrings_stats[i].stat_offset;
 
@@ -1119,10 +1258,221 @@ static void tc956xmac_get_strings(struct net_device *dev, u32 stringset, u8 *dat
 	}
 }
 
+static void tc956xmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
+{
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+
+	if (device_can_wakeup(priv->device))
+		phylink_ethtool_get_wol(priv->phylink, wol);
+}
+
+static int tc956xmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
+{
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+	u32 support = (WAKE_MAGIC | WAKE_PHY);
+	int ret;
+
+	if (!device_can_wakeup(priv->device))
+		return -EINVAL;
+
+	if (wol->wolopts & ~support)
+		return -EINVAL;
+
+	ret = phylink_ethtool_set_wol(priv->phylink, wol);
+	if (!ret)
+		device_set_wakeup_enable(priv->device, wol->wolopts);
+	else
+		return ret;
+
+	mutex_lock(&priv->lock);
+	priv->wolopts = wol->wolopts;
+	mutex_unlock(&priv->lock);
+
+	return ret;
+}
+
+#ifdef DEBUG_EEE
+int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data)
+{
+	int val;
+
+	if (!phydev->drv)
+		return -EIO;
+
+	/* Get Supported EEE */
+	val = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE);
+	KPRINT_INFO("%s --- cap: 0x%x\n",__func__,val);
+	if (val < 0)
+		return val;
+	data->supported = mmd_eee_cap_to_ethtool_sup_t(val);
+
+	/* Get advertisement EEE */
+	val = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV);
+	if (val < 0)
+		return val;
+
+	KPRINT_INFO("%s --- adv: 0x%x\n",__func__,val);
+	
+	data->advertised = mmd_eee_adv_to_ethtool_adv_t(val);
+	data->eee_enabled = !!data->advertised;
+
+	/* Get LP advertisement EEE */
+	val = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_LPABLE);
+	if (val < 0)
+		return val;
+	KPRINT_INFO("%s --- lp_adv: 0x%x\n",__func__,val);
+		
+	data->lp_advertised = mmd_eee_adv_to_ethtool_adv_t(val);
+
+	KPRINT_INFO("%s --- data->advertised: 0x%x\n",__func__,data->advertised);
+	KPRINT_INFO("%s --- data->lp_advertised: 0x%x\n",__func__,data->lp_advertised);
+
+	data->eee_active = !!(data->advertised & data->lp_advertised);
+
+
+	KPRINT_INFO("%s --- data->eee_enabled: 0x%x\n",__func__,data->eee_enabled);
+	KPRINT_INFO("%s --- data->eee_active: 0x%x\n",__func__,data->eee_active);
+
+	return 0;
+}
+int phy_ethtool_set_eee_local(struct phy_device *phydev, struct ethtool_eee *data)
+{
+	int cap, old_adv, adv = 0, ret;
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+	int cap2p5, old_adv_2p5, adv_2p5 = 0;
+#endif
+	if (!phydev->drv)
+		return -EIO;
+
+	/* Get Supported EEE */
+	cap = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE);
+	KPRINT_INFO("%s --- cap: 0x%x\n",__func__,cap);
+	if (cap < 0)
+		return cap;
+
+
+	old_adv = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV);
+	KPRINT_INFO("%s --- old_adv:0x%x\n",__func__,old_adv);
+	if (old_adv < 0)
+		return old_adv;
+
+
+	if (data->eee_enabled) {
+		adv = !data->advertised ? cap :
+		      ethtool_adv_to_mmd_eee_adv_t(data->advertised) & cap;
+		/* Mask prohibited EEE modes */
+		adv &= ~phydev->eee_broken_modes;
+	}
+	KPRINT_INFO("%s --- adv:0x%x\n",__func__,adv);
+
+	if (old_adv != adv) {
+		ret = phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV, adv);
+		if (ret < 0)
+			return ret;
+
+		ret = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV);
+		KPRINT_INFO("%s --- readback adv:0x%x\n",__func__,ret);
+		if (ret < 0)
+			return ret;
+
+
+		/* Restart autonegotiation so the new modes get sent to the
+		 * link partner.
+		 */
+		if (phydev->autoneg == AUTONEG_ENABLE) {
+			ret = phy_restart_aneg(phydev);
+			if (ret < 0)
+				return ret;
+		}
+	}
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+	cap2p5 = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE2);
+	KPRINT_INFO("%s --- cap2p5: 0x%x\n",__func__,cap2p5);
+	if (cap < 0)
+		return cap;
+
+	old_adv_2p5 = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV2);
+	KPRINT_INFO("%s --- old_adv_2p5:0x%x\n",__func__,old_adv_2p5);
+	if (old_adv_2p5 < 0)
+		return old_adv_2p5;
+
+	if (data->eee_enabled) {
+		adv_2p5 = !data->advertised ? cap2p5 :
+		      ethtool_adv_to_mmd_eee_adv_t(data->advertised) & cap2p5;
+		/* Mask prohibited EEE modes */
+		adv_2p5 &= ~phydev->eee_broken_modes;
+	}
+	KPRINT_INFO("%s --- adv_2p5:0x%x\n",__func__,adv_2p5);
+
+	if (old_adv_2p5 != adv_2p5) {
+		ret = phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV2, adv_2p5);
+		if (ret < 0)
+			return ret;
+
+		/* Restart autonegotiation so the new modes get sent to the
+		 * link partner.
+		 */
+		if (phydev->autoneg == AUTONEG_ENABLE) {
+			ret = phy_restart_aneg(phydev);
+			if (ret < 0)
+				return ret;
+		}
+	}
+#endif
+	return 0;
+}
+
+#endif
+
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data)
+{
+	int ret;
+	int cap2p5, old_adv_2p5, adv_2p5 = 0;
+	if (!phydev->drv)
+		return -EIO;
+
+	cap2p5 = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE2);
+	KPRINT_INFO("%s --- cap2p5: 0x%x\n",__func__,cap2p5);
+	if (cap2p5 < 0)
+		return cap2p5;
+
+	old_adv_2p5 = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV2);
+	KPRINT_INFO("%s --- old_adv_2p5:0x%x\n",__func__,old_adv_2p5);
+	if (old_adv_2p5 < 0)
+		return old_adv_2p5;
+
+	if (data->eee_enabled) {
+		adv_2p5 = !data->advertised ? cap2p5 :
+		      ethtool_adv_to_mmd_eee_adv_t(data->advertised) & cap2p5;
+		/* Mask prohibited EEE modes */
+		adv_2p5 &= ~phydev->eee_broken_modes;
+	}
+	KPRINT_INFO("%s --- adv_2p5:0x%x\n",__func__,adv_2p5);
+
+	if (old_adv_2p5 != adv_2p5) {
+		ret = phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV2, adv_2p5);
+		if (ret < 0)
+			return ret;
+
+		/* Restart autonegotiation so the new modes get sent to the
+		 * link partner.
+		 */
+		if (phydev->autoneg == AUTONEG_ENABLE) {
+			ret = phy_restart_aneg(phydev);
+			if (ret < 0)
+				return ret;
+		}
+	}
+	return 0;
+}
+#endif
+
 static int tc956xmac_ethtool_op_get_eee(struct net_device *dev,
 				     struct ethtool_eee *edata)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
+	int ret;
 
 	if (!priv->dma_cap.eee)
 		return -EOPNOTSUPP;
@@ -1131,7 +1481,21 @@ static int tc956xmac_ethtool_op_get_eee(struct net_device *dev,
 	edata->eee_active = priv->eee_active;
 	edata->tx_lpi_timer = priv->tx_lpi_timer;
 
-	return phylink_ethtool_get_eee(priv->phylink, edata);
+	DBGPR_FUNC(priv->device, "1--> %s edata->eee_active: %d\n", __func__, edata->eee_active);
+#ifndef DEBUG_EEE
+	ret = phylink_ethtool_get_eee(priv->phylink, edata);
+#else	
+	ret = phy_ethtool_get_eee_local(priv->dev->phydev, edata);
+#endif
+
+	edata->eee_enabled = priv->eee_enabled;
+	edata->eee_active = priv->eee_active;
+	edata->tx_lpi_timer = priv->tx_lpi_timer;
+	edata->tx_lpi_enabled = edata->eee_enabled;
+
+	DBGPR_FUNC(priv->device, "2--> %s edata->eee_active: %d\n", __func__, edata->eee_active);
+
+	return ret;
 }
 
 static int tc956xmac_ethtool_op_set_eee(struct net_device *dev,
@@ -1141,26 +1505,43 @@ static int tc956xmac_ethtool_op_set_eee(struct net_device *dev,
 	int ret;
 
 	if (!edata->eee_enabled) {
+		DBGPR_FUNC(priv->device, "%s Disable EEE\n", __func__);
 		tc956xmac_disable_eee_mode(priv);
 	} else {
+		DBGPR_FUNC(priv->device, "%s Enable EEE\n", __func__);
 		/* We are asking for enabling the EEE but it is safe
 		 * to verify all by invoking the eee_init function.
 		 * In case of failure it will return an error.
 		 */
-		if (priv->tx_lpi_timer != edata->tx_lpi_timer)
+		if (priv->tx_lpi_timer != edata->tx_lpi_timer) {
+			if (edata->tx_lpi_timer > TC956X_MAX_LPI_AUTO_ENTRY_TIMER) {
+				DBGPR_FUNC(priv->device, "%s Error : Maximum LPI Auto Entry Time Supported %d\n",
+					__func__, TC956X_MAX_LPI_AUTO_ENTRY_TIMER);
+				return -EINVAL;
+			}
 			priv->tx_lpi_timer = edata->tx_lpi_timer;
+		}
 
 		edata->eee_enabled = tc956xmac_eee_init(priv);
 		if (!edata->eee_enabled)
 			return -EOPNOTSUPP;
 	}
 
+#ifndef DEBUG_EEE
 	ret = phylink_ethtool_set_eee(priv->phylink, edata);
+
+	ret |= phy_ethtool_set_eee_2p5(priv->dev->phydev, edata);
+#else
+	ret = phy_ethtool_set_eee_local(priv->dev->phydev, edata);
+#endif
 	if (ret)
 		return ret;
 
 	priv->eee_enabled = edata->eee_enabled;
 	priv->tx_lpi_timer = edata->tx_lpi_timer;
+
+	DBGPR_FUNC(priv->device, "1--> %s priv->eee_enabled: %d\n", __func__, priv->eee_enabled);
+
 	return 0;
 }
 
@@ -1466,6 +1847,8 @@ static const struct ethtool_ops tc956xmac_ethtool_ops = {
 	.self_test = tc956xmac_selftest_run,
 	.get_ethtool_stats = tc956xmac_get_ethtool_stats,
 	.get_strings = tc956xmac_get_strings,
+	.get_wol = tc956xmac_get_wol,
+	.set_wol = tc956xmac_set_wol,
 	.get_eee = tc956xmac_ethtool_op_get_eee,
 	.set_eee = tc956xmac_ethtool_op_set_eee,
 	.get_sset_count	= tc956xmac_get_sset_count,

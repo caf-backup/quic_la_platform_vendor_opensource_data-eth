@@ -87,8 +87,9 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 		return -EINVAL;
 
 	idev->dev.offline = input;
-	ioss_for_each_iface(iface, idev)
-		ioss_iface_queue_refresh(iface, true);
+
+	ioss_iface_queue_refresh(iface, true);
+
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
 	return size;
@@ -112,6 +113,8 @@ static int ioss_bus_probe(struct device *dev)
 		return rc;
 	}
 
+	ioss_pci_hijack_pm_ops(idev);
+
 	rc = ioss_register_panic_notifier(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to register panic notifier");
@@ -126,7 +129,7 @@ static int ioss_bus_probe(struct device *dev)
 
 	rc = ioss_net_watch_device(idev);
 	if (rc) {
-		ioss_dev_err(idev, "Failed to watch interfaces");
+		ioss_dev_err(idev, "Failed to watch net device");
 		goto err_watch;
 	}
 
@@ -146,6 +149,8 @@ err_watch:
 err_open:
 	ioss_unregister_panic_notifier(idev);
 err_notifier:
+	ioss_pci_restore_pm_ops(idev);
+
 	return rc;
 }
 
@@ -172,6 +177,7 @@ static int ioss_bus_remove(struct device *dev)
 	}
 
 	ioss_unregister_panic_notifier(idev);
+	ioss_pci_restore_pm_ops(idev);
 	device_init_wakeup(dev, false);
 
 	return 0;
@@ -190,8 +196,8 @@ static int __ioss_bus_resume_idev(struct device *dev)
 {
 	bool need_refresh = false;
 	bool was_suspended = true;
-	struct ioss_interface *iface;
 	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Resuming device");
 
@@ -200,13 +206,11 @@ static int __ioss_bus_resume_idev(struct device *dev)
 		need_refresh = true;
 	}
 
-	ioss_for_each_iface(iface, idev) {
-		if (iface->state == IOSS_IF_ST_ONLINE)
-			was_suspended = false;
+	if (iface->state == IOSS_IF_ST_ONLINE)
+		was_suspended = false;
 
-		if (need_refresh)
-			ioss_iface_queue_refresh(iface, false);
-	}
+	if (need_refresh)
+		ioss_iface_queue_refresh(iface, false);
 
 	if (was_suspended)
 		pm_wakeup_dev_event(dev, IOSS_RESUME_SETTLE_MS, false);
@@ -216,14 +220,12 @@ static int __ioss_bus_resume_idev(struct device *dev)
 
 static int __ioss_bus_online_idev(struct device *dev)
 {
-	struct ioss_device *idev;
-	struct ioss_interface *iface;
+	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	dev->offline = 0;
-	idev = to_ioss_device(dev);
 
-	ioss_for_each_iface(iface, idev)
-		ioss_iface_queue_refresh(iface, true);
+	ioss_iface_queue_refresh(iface, true);
 
 	ioss_dev_log(idev, "Online device");
 
@@ -232,14 +234,12 @@ static int __ioss_bus_online_idev(struct device *dev)
 
 static int __ioss_bus_offline_idev(struct device *dev)
 {
-	struct ioss_device *idev;
-	struct ioss_interface *iface;
+	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	dev->offline = 1;
-	idev = to_ioss_device(dev);
 
-	ioss_for_each_iface(iface, idev)
-		ioss_iface_queue_refresh(iface, true);
+	ioss_iface_queue_refresh(iface, true);
 
 	ioss_dev_log(idev, "Offline device");
 
@@ -323,6 +323,9 @@ int ioss_bus_register_driver(struct ioss_driver *idrv)
 	idrv->drv.name = idrv->name;
 	idrv->drv.bus = &ioss_bus;
 
+	mutex_init(&idrv->pm_lock);
+	refcount_set(&idrv->pm_refcnt, 0);
+
 	/* Init drv */
 	/* Register driver */
 
@@ -341,6 +344,8 @@ void ioss_bus_unregister_driver(struct ioss_driver *idrv)
 	int i;
 
 	driver_unregister(&idrv->drv);
+
+	mutex_destroy(&idrv->pm_lock);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_drivers); i++) {
 		if (ioss_drivers[i] == idrv) {
@@ -369,6 +374,12 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 		return NULL;
 	}
 
+	if (!dev->driver || !dev->driver->pm) {
+		ioss_log_err(NULL,
+			"Driver %s does not support PM callbacks", dev_name(dev));
+		return NULL;
+	}
+
 	idev = kzalloc(sizeof(*idev), GFP_KERNEL);
 	if (!idev) {
 		ioss_log_err(NULL, "Failed to alloc ioss device");
@@ -378,9 +389,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	*idev_list_entry = idev;
 
 	idev->root = ioss;
-	mutex_init(&idev->pm_lock);
-	refcount_set(&idev->pm_refcnt, 0);
-	INIT_LIST_HEAD(&idev->interfaces);
+
+	INIT_LIST_HEAD(&idev->interface.channels);
 
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
@@ -392,24 +402,17 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 void ioss_bus_free_idev(struct ioss_device *idev)
 {
 	int i;
-	struct ioss_interface *iface, *tmp_iface;
+	struct ioss_channel *ch, *tmp_ch;
+	struct ioss_interface *iface = &idev->interface;
 
-	/* Free interfaces and channels */
-	list_for_each_entry_safe(iface, tmp_iface, &idev->interfaces, node) {
-		struct ioss_channel *ch, *tmp_ch;
-
-		list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
-			list_del(&ch->node);
-			kzfree(ch->ioss_priv);
-			kzfree(ch);
-		}
-
-		list_del(&iface->node);
-		kzfree(iface->ioss_priv);
-		kzfree(iface);
+	/* Free channels */
+	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+		list_del(&ch->node);
+		kzfree(ch->ioss_priv);
+		kzfree(ch);
 	}
 
-	mutex_destroy(&idev->pm_lock);
+	kzfree(iface->ioss_priv);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
 		if (ioss_devices[i] == idev) {
@@ -439,6 +442,8 @@ void ioss_bus_unregister_idev(struct ioss_device *idev)
 int ioss_bus_register_iface(struct ioss_interface *iface,
 		struct net_device *net_dev)
 {
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
 	dev_hold(net_dev);
 
 	iface->dev.parent = &net_dev->dev;
@@ -446,7 +451,7 @@ int ioss_bus_register_iface(struct ioss_interface *iface,
 	iface->dev.type = &ioss_iface_type;
 
 	dev_set_name(&iface->dev, "%s-%s",
-			dev_name(&iface->idev->dev), net_dev->name);
+			dev_name(&idev->dev), net_dev->name);
 
 	return device_register(&iface->dev);
 }

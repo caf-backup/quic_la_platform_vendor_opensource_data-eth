@@ -280,6 +280,10 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res) {
+		dev_err(&pdev->dev, "No resource for the device\n");
+		return  -EINVAL;
+	}
 	stmmac_res->addr = devm_ioremap_resource(&pdev->dev, res);
 	dev_info(&pdev->dev, "stmmac regs virt=0x%x, regs phy=0x%x\n",
 		 stmmac_res->addr, res->start);
