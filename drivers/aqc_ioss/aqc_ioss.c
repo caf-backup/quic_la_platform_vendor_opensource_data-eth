@@ -18,7 +18,7 @@
 
 #define RING_SIZE_MASK 0x1FFF
 
-#define RECOMMENDED_FW_VER "1.3.19"
+#define RECOMMENDED_FW_VER "1.3.22"
 
 static bool fw_ver_strict;
 module_param(fw_ver_strict, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);

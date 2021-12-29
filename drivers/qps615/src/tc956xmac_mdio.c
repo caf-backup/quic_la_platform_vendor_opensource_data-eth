@@ -36,6 +36,11 @@
  *  VERSION     : 01-00-01
  *  20 Jul 2021 : 1. MAX C22 address changed to 3. Print not corrected for C45 PHY selection
  *  VERSION     : 01-00-03
+ *  24 Nov 2021 : 1. Restricted MDIO access when no PHY found or MDIO registration fails
+ *                2. Added mdio lock for making mii bus of private member to null to avoid parallel accessing to MDIO bus
+ *  VERSION     : 01-00-23
+ *  03 Dec 2021 : 1. Max C22/C45 PHY address changed to PHY_MAX_ADDR.
+ *  VERSION     : 01-00-29
  */
 
 #include <linux/gpio/consumer.h>
@@ -108,7 +113,7 @@ static int tc956xmac_xgmac2_c22_format(struct tc956xmac_priv *priv, int phyaddr,
 	return 0;
 }
 
-static int tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
+static int __tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
 {
 	struct net_device *ndev = bus->priv;
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
@@ -179,8 +184,21 @@ static int tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int phyr
 	/* Read the data from the MII data register */
 	return readl(priv->ioaddr + mii_data) & GENMASK(15, 0);
 }
+/**
+ * __tc956xmac_xgmac2_mdio_read
+ * @bus: points to the mii_bus structure
+ * @phyaddr: MII addr
+ * @phyreg: MII reg
+ * Description: Check whether MDIO bus is registered successfully or not
+ * if registered then access MDIO for Read operation
+ */
+static int tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int phyreg)
+{
+	return bus->priv ?
+		__tc956xmac_xgmac2_mdio_read(bus, phyaddr, phyreg) : -EIO;
+}
 
-static int tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
+static int __tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
 				    int phyreg, u16 phydata)
 {
 	struct net_device *ndev = bus->priv;
@@ -233,6 +251,21 @@ static int tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
 	/* Wait until any existing MII operation is complete */
 	return readl_poll_timeout(priv->ioaddr + mii_data, tmp,
 				  !(tmp & MII_XGMAC_BUSY), /*100*/10, 10000);
+}
+/**
+ * __tc956xmac_xgmac2_mdio_write
+ * @bus: points to the mii_bus structure
+ * @phyaddr: MII addr
+ * @phyreg: MII reg
+ * @phydata: data to write into PHY reg
+ * Description: Check whether MDIO bus is registered successfully or not
+ * if registered then access MDIO for write operation
+ */
+static int tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
+				    int phyreg, u16 phydata)
+{
+	return bus->priv ?
+		__tc956xmac_xgmac2_mdio_write(bus, phyaddr, phyreg, phydata) : -EIO;
 }
 
 #ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
@@ -426,7 +459,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 	struct tc956xmac_mdio_bus_data *mdio_bus_data = priv->plat->mdio_bus_data;
 	struct device_node *mdio_node = priv->plat->mdio_node;
 	struct device *dev = ndev->dev.parent;
-	int addr, found, max_addr;
+	int addr, found;
 
 	if (!mdio_bus_data)
 		return 0;
@@ -443,9 +476,6 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 	if (priv->plat->has_xgmac) {
 		new_bus->read = &tc956xmac_xgmac2_mdio_read;
 		new_bus->write = &tc956xmac_xgmac2_mdio_write;
-
-		/* Right now only C22 phys are supported */
-		max_addr = PHY_MAX_ADDR + 1;
 #ifndef TC956X
 		/* Check if DT specified an unsupported phy addr */
 		if (priv->plat->phy_addr > MII_XGMAC_MAX_C22ADDR)
@@ -457,7 +487,6 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 	else {
 		new_bus->read = &tc956xmac_mdio_read;
 		new_bus->write = &tc956xmac_mdio_write;
-		max_addr = PHY_MAX_ADDR;
 	}
 #endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 
@@ -488,7 +517,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 		goto bus_register_done;
 #endif
 	found = 0;
-	for (addr = 0; addr < max_addr; addr++) {
+	for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
 
 #ifdef TC956X
 		int phy_reg_read;
@@ -502,10 +531,10 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 			if (phy_reg_read != 0x0000 && phy_reg_read != 0xffff) {
 				if (priv->plat->c45_needed == true) 
 					NMSGPR_ALERT(priv->device,
-					    "TC956X: Phy detected C45 at ID/ADDR %d\n", addr);
+					    "TC956X: [1] Phy detected C45 at ID/ADDR %d\n", addr);
 				else 
 					NMSGPR_ALERT(priv->device,
-					    "TC956X: Phy detected C22 at ID/ADDR %d\n", addr);
+					    "TC956X: [1] Phy detected C22 at ID/ADDR %d\n", addr);
 #else
 		struct phy_device *phydev = mdiobus_get_phy(new_bus, addr);
 
@@ -546,7 +575,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 	}
 	/* If C22 PHY is not found, probe for C45 based PHY*/
 	if (!found) {
-		for (addr = 0; addr < max_addr; addr++) {
+		for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
 
 #ifdef TC956X
 			int phy_reg_read1, phy_reg_read2, phy_id;
@@ -561,7 +590,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 				phy_id = ((phy_reg_read1 << 16) | phy_reg_read2);
 				if (phy_id != 0x00000000 && phy_id != 0xffffffff) {
 					NMSGPR_ALERT(priv->device,
-							"TC956X: Phy detected C45 at ID/ADDR %d\n", addr);
+							"TC956X: [2] Phy detected C45 at ID/ADDR %d\n", addr);
 
 #else
 					struct phy_device *phydev = mdiobus_get_phy(new_bus, addr);
@@ -606,9 +635,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 
 	if (!found && !mdio_node) {
 		dev_warn(dev, "No PHY found\n");
-		mdiobus_unregister(new_bus);
-		mdiobus_free(new_bus);
-		return -ENODEV;
+		goto bus_no_phy_found;
 	}
 #ifndef TC956X
 bus_register_done:
@@ -616,8 +643,15 @@ bus_register_done:
 	priv->mii = new_bus;
 
 	return 0;
-
+bus_no_phy_found:
+	err = -ENODEV;
+	mdiobus_unregister(new_bus);
 bus_register_fail:
+	/* Set bus->priv to NULL, so that any future calls to bus read/write can avoid bus access.*/
+	mutex_lock(&new_bus->mdio_lock);
+	new_bus->priv = NULL;
+	mutex_unlock(&new_bus->mdio_lock);
+
 	mdiobus_free(new_bus);
 	return err;
 }
@@ -635,7 +669,9 @@ int tc956xmac_mdio_unregister(struct net_device *ndev)
 		return 0;
 
 	mdiobus_unregister(priv->mii);
+	mutex_lock(&priv->mii->mdio_lock);
 	priv->mii->priv = NULL;
+	mutex_unlock(&priv->mii->mdio_lock);
 	mdiobus_free(priv->mii);
 	priv->mii = NULL;
 
