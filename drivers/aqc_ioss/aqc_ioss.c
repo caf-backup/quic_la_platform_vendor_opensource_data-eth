@@ -120,7 +120,7 @@ static int aqc_ioss_open_device(struct ioss_device *idev)
 	if(__check_firmware_version(idev) && fw_ver_strict)
 		return -EFAULT;
 
-	aqdev = kzalloc(sizeof(*aqdev), GFP_KERNEL);
+	aqdev = vzalloc(sizeof(*aqdev));
 	if (!aqdev)
 		return -ENOMEM;
 
@@ -137,7 +137,7 @@ static int aqc_ioss_open_device(struct ioss_device *idev)
 	return 0;
 
 err_notif:
-	kzfree(aqdev);
+	vfree(aqdev);
 
 	return -EFAULT;
 }
@@ -149,7 +149,7 @@ static int aqc_ioss_close_device(struct ioss_device *idev)
 	ioss_dev_dbg(idev, "%s", __func__);
 
 	atl_fwd_unregister_notifier(idev->net_dev, &aqdev->nb);
-	kzfree(aqdev);
+	vfree(aqdev);
 
 	return 0;
 }
