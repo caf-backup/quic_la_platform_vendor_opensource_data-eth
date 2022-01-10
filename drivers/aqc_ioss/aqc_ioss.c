@@ -555,7 +555,6 @@ static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data
 	return 0;
 }
 
-#if ATL_FWD_API_VERSION > 3
 static int aqc_ioss_device_statistics(struct ioss_device *idev,
 					struct ioss_device_stats *statistics)
 {
@@ -581,69 +580,6 @@ static int aqc_ioss_device_statistics(struct ioss_device *idev,
 
 	return ret;
 }
-#else
-static int aqc_ioss_device_statistics(struct ioss_device *idev,
-					struct ioss_device_stats *statistics)
-{
-	u64 *data;
-	u8 *strings;
-	int strings_count = 0;
-	struct ethtool_stats stats;
-	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
-
-	if (ops == NULL || ops->get_sset_count == NULL ||
-				ops->get_ethtool_stats == NULL ||
-				ops->get_strings == NULL)
-		return -EOPNOTSUPP;
-
-	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
-
-	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-
-	strings = kcalloc(strings_count, ETH_GSTRING_LEN, GFP_KERNEL);
-	if (!strings) {
-		kfree(data);
-		return -ENOMEM;
-	}
-
-	memset(&stats, 0, sizeof(stats));
-	stats.n_stats = strings_count;
-
-	rtnl_lock();
-	ops->get_ethtool_stats(idev->net_dev, &stats, data);
-	rtnl_unlock();
-
-	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
-
-	statistics->emac_rx_packets =
-		__get_stats_data("rx_ether_pkts", data, strings, strings_count);
-	statistics->emac_tx_packets =
-		__get_stats_data("tx_ether_pkts", data, strings, strings_count);
-
-	statistics->emac_rx_bytes =
-		__get_stats_data("rx_ether_octets", data, strings, strings_count);
-	statistics->emac_tx_bytes =
-		__get_stats_data("tx_ether_octets", data, strings, strings_count);
-
-	statistics->emac_rx_errors =
-		__get_stats_data("rx_ether_crc_align_errs", data, strings, strings_count);
-
-	statistics->emac_rx_drops =
-		__get_stats_data("rx_ether_drops", data, strings, strings_count);
-
-	statistics->emac_rx_pause_frames =
-		__get_stats_data("rx_pause", data, strings, strings_count);
-	statistics->emac_tx_pause_frames =
-		__get_stats_data("tx_pause", data, strings, strings_count);
-
-	kfree(data);
-	kfree(strings);
-
-	return 0;
-}
-#endif
 
 static int aqc_ioss_channel_statistics(struct ioss_channel *ch,
 					 struct ioss_channel_stats *statistics)
