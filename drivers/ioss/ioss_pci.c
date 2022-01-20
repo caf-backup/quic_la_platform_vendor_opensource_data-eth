@@ -21,7 +21,7 @@ static int ioss_pci_add_device(struct pci_dev *pdev, struct ioss *ioss)
 	if (!idev)
 		return -ENOMEM;
 
-	dev_set_name(&idev->dev, "%s", dev_name(idev->dev.parent));
+	dev_set_name(&idev->dev, "%s-ioss", dev_name(idev->dev.parent));
 
 	rc = ioss_bus_register_idev(idev);
 	if (rc) {
