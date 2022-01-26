@@ -648,8 +648,10 @@ static int qcom_ethqos_suspend(struct device *dev)
 
 	ndev = dev_get_drvdata(dev);
 
-	if (!ndev || !netif_running(ndev))
-		return -EINVAL;
+	if (!ndev || !netif_running(ndev)) {
+		ETHQOSINFO(" Suspend not possible\n");
+		return 0;
+	}
 
 	priv = netdev_priv(ndev);
 	ret = stmmac_suspend(dev);
@@ -684,8 +686,8 @@ static int qcom_ethqos_resume(struct device *dev)
 	ndev = dev_get_drvdata(dev);
 
 	if (!ndev || !netif_running(ndev)) {
-		ETHQOSERR(" Resume not possible\n");
-		return -EINVAL;
+		ETHQOSINFO(" Resume not possible\n");
+		return 0;
 	}
 
 	ret = emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,

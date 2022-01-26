@@ -79,6 +79,8 @@
  *  VERSION     : 01-00-26
  *  01 Dec 2021 : 1. Free EMAC IRQ during suspend and request EMAC IRQ during resume.
  *  VERSION     : 01-00-27
+ *  03 Dec 2021 : 1. Added error check for phydev in tc956xmac_suspend().
+ *  VERSION     : 01-00-29
  */
 
 #include <linux/clk.h>
@@ -2033,6 +2035,9 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 
 #ifdef TC956X_PM_DEBUG
 	pm_generic_resume(priv->device);
+#endif
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet is Ready. Link is UP");
 #endif
 }
 
@@ -10771,6 +10776,12 @@ int tc956xmac_suspend(struct device *dev)
 		return 0;
 
 	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
+
+	if (!phydev) {
+		netdev_err(priv->dev, "no phy at addr %d\n", addr);
+		return 0;
+	}
+
 	/* Disabling EEE for issue in TC9560/62, to be tested for TC956X */
 	if (priv->eee_enabled)
 		tc956xmac_disable_eee_mode(priv);
@@ -10784,7 +10795,7 @@ int tc956xmac_suspend(struct device *dev)
 		goto clean_exit;
 
 	/* Cancel all work-queues before suspend start only when net interface is up and running */
-	if(phydev->drv != NULL) {
+	if (phydev->drv != NULL) {
 		if ((true == priv->plat->phy_interrupt_mode) && 
 		(phydev->drv->config_intr)) {
 			DBGPR_FUNC(priv->device, "%s : (Flush All PHY work-queues) \n", __func__);
