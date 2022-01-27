@@ -112,12 +112,12 @@ int emac_ctrl_fe_unregister_notifier(struct notifier_block *nb)
 		mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
 		emac_ctrl_fe_ctx->emac_dma_drv_state = EMAC_CTRL_FE_DMA_DRV_UNREG;
 		mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
-	}
 
-	emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_VIRT_UNREG_EVENTS;
-	emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
-	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
-	EMAC_CTL_FE_INFO("Sent UnRegister Event Cmd \n");
+		emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_VIRT_UNREG_EVENTS;
+		emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
+		emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
+		EMAC_CTL_FE_INFO("Sent UnRegister Event Cmd \n");
+	}
 
 	/*Parse notifier block for suspend state*/
 	cancel_delayed_work_sync(&emac_ctrl_fe_trigger_notif);
@@ -509,7 +509,7 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 	pdev = devm_kzalloc(&vdev->dev, sizeof(*pdev), GFP_KERNEL);
 	if (!pdev) {
 		ret = -ENOMEM;
-	//	goto fail;
+		goto fail;
 	}
 
 	mutex_init(&pdev->emac_ctl_fe_lock);
@@ -579,10 +579,10 @@ free_chrdev:
 	//unregister_chrdev_region(pdev->dev_no, DEVICE_NUM);
 free_priv:
 	//kfree(pdev);//not needed with managed allocation
-fail:
-
-	return ret;
 	*/
+fail:
+	return ret;
+
 }
 /*
 static void emac_ctrl_fe_remove(struct virtio_device *vdev)

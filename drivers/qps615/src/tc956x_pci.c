@@ -103,6 +103,8 @@
  *  01 Dec 2021 : 1. Resetting SRAM Region before loading firmware.
  		  2. Version update
  *  VERSION     : 01-00-28
+ *  03 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-29
  */
 
 #include <linux/clk-provider.h>
@@ -140,7 +142,7 @@ static unsigned int tc956x_port0_lpi_auto_entry_timer = TC956XMAC_LPIET_600US;
 static unsigned int tc956x_port1_enable_eee = DISABLE;
 static unsigned int tc956x_port1_lpi_auto_entry_timer = TC956XMAC_LPIET_600US;
 
-static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 2, 8};
+static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 2, 9};
 
 static int tc956xmac_pm_usage_counter; /* Device Usage Counter */
 struct mutex tc956x_pm_suspend_lock; /* This mutex is shared between all available EMAC ports. */
@@ -1883,6 +1885,10 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		tc956x_drv_version.patch_rel_major, tc956x_drv_version.patch_rel_minor);
 	NMSGPR_INFO(&pdev->dev, "%s\n", version_str);
 
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet probe start");
+#endif
+
 	plat = devm_kzalloc(&pdev->dev, sizeof(*plat), GFP_KERNEL);
 	if (!plat)
 		return -ENOMEM;
@@ -2355,6 +2361,9 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	tc956xmac_pm_usage_counter++;
 	DBGPR_FUNC(&(pdev->dev), "%s : (Device Usage Count = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
 	mutex_unlock(&tc956x_pm_suspend_lock);
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet probe end");
+#endif
 	return ret;
 
 err_out_msi_failed:

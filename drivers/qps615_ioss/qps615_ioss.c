@@ -254,6 +254,7 @@ enum {
 	FLT_TYPE_IP4,
 	FLT_TYPE_IP6,
 	FLT_TYPE_VLAN,
+	FLT_TYPE_MKA,
 
 	/* Must be the last entry */
 	FLT_NUM_TYPES,
@@ -318,6 +319,24 @@ static int qps615_set_filter_info(struct rx_filter_info *filter_info)
 	filter_info->entries[FLT_TYPE_VLAN].res3 = 0;
 	filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
 	filter_info->entries[FLT_TYPE_VLAN].res4 = 0;
+
+	/* MKA  ether type 0x888E
+	 * Only Check for 0x8E and 0x88
+	 */
+	filter_info->entries[FLT_TYPE_MKA].match_data = 0x00008E88;
+	filter_info->entries[FLT_TYPE_MKA].match_en = 0x0000FFFF;
+	filter_info->entries[FLT_TYPE_MKA].af = 1;
+	filter_info->entries[FLT_TYPE_MKA].rf = 0;
+	filter_info->entries[FLT_TYPE_MKA].im = 0;
+	filter_info->entries[FLT_TYPE_MKA].nc = 0;
+	filter_info->entries[FLT_TYPE_MKA].res1 = 0;
+	filter_info->entries[FLT_TYPE_MKA].frame_offset = 3;
+	filter_info->entries[FLT_TYPE_MKA].res2 = 0;
+	filter_info->entries[FLT_TYPE_MKA].ok_index = 0;
+	filter_info->entries[FLT_TYPE_MKA].res3 = 0;
+	filter_info->entries[FLT_TYPE_MKA].dma_ch_no = 2;
+	filter_info->entries[FLT_TYPE_MKA].res4 = 0;
+
 
 	return 0;
 }
