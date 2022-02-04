@@ -71,6 +71,10 @@
  *  VERSION     : 01-00-31
  *  27 Dec 2021 : 1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
  *  VERSION     : 01-00-32
+ *  24 Jan 2022 : 1. Set Clock control and Reset control register to default value on driver unload.
+ *  VERSION     : 01-00-38
+ *  31 Jan 2022 : 1. Additional macros defined for debug dump API usage.
+ *  VERSION     : 01-00-39
  */
 
 #ifndef __COMMON_H__
@@ -157,6 +161,12 @@ enum TC956X_PORT_PM_STATE {
 #define ETH_CORE_DUMP_OFFSET5_END (0x1124 / 4)
 #define ETH_CORE_DUMP_OFFSET6     (0x1140 / 4)
 #define ETH_CORE_DUMP_OFFSET6_END (0x1174 / 4)
+
+/* 0x20004000 to 0x2000401C is for Port0, 0x20004020 to 0x2000403C is for Port1 */
+#define SRAM_TX_PCIE_ADDR_LOC	0x44000
+
+/* 0x20004040 to 0x2000405C is for Port0, 0x20004060 to 0x2000407C is for Port1 */
+#define SRAM_RX_PCIE_ADDR_LOC	0x44040
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -672,6 +682,7 @@ enum packets_types {
 #define NCLKCTRL0_INTCEN	BIT(4)
 #define NCLKCTRL0_MAC0TXCEN	BIT(7)
 #define NCLKCTRL0_PCIECEN	BIT(9)
+#define NCLKCTRL0_I2SSPIEN	BIT(12)
 #define NCLKCTRL0_SRMCEM	BIT(13)
 #define NCLKCTRL0_MAC0RXCEN	BIT(14)
 #define NCLKCTRL0_UARTOCEN	BIT(16)
@@ -687,6 +698,7 @@ enum packets_types {
 #define NRSTCTRL0_INTRST	BIT(4)
 #define NRSTCTRL0_MAC0RST	BIT(7)
 #define NRSTCTRL0_PCIERST	BIT(9)
+#define NRSTCTRL0_UART0RST	BIT(16)
 #define NRSTCTRL0_MSIGENRST	BIT(18)
 #define NRSTCTRL0_MAC0PMARST	BIT(30)
 #define NRSTCTRL0_MAC0PONRST	BIT(31)
@@ -708,6 +720,13 @@ enum packets_types {
 				 NCLKCTRL1_MAC1RMCEN | NCLKCTRL0_MAC0ALLCLKEN)
 #define NCLKCTRL0_COMMON_EMAC_MASK     (NCLKCTRL0_POEPLLCEN | NCLKCTRL0_SGMPCIEN | \
 				 NCLKCTRL0_REFCLKOCEN)
+
+#define NRSTCTRL0_DEFAULT	(NRSTCTRL0_MAC0PONRST| NRSTCTRL0_MAC0PMARST | \
+					NRSTCTRL0_MSIGENRST  | NRSTCTRL0_UART0RST | \
+					NRSTCTRL0_MAC0RST | NRSTCTRL0_INTRST | \
+					NRSTCTRL0_MCURST)
+#define NCLKCTRL0_DEFAULT 	(NCLKCTRL0_SRMCEM | NCLKCTRL0_I2SSPIEN | \
+					NCLKCTRL0_PCIECEN | NCLKCTRL0_MCUCEN)
 #define NBUSCTRL_OFFSET		(0x1014)
 #endif
 
@@ -1085,6 +1104,11 @@ entry delay = n * 256 ns */
 						(pf_id * TC956X_MSI_PF1) + (0x0000))
 #define TC956X_MSI_INT_STS_OFFSET(pf_id)	(TC956X_MSI_BASE + \
 						(pf_id * TC956X_MSI_PF1) + (0x0010))
+
+#define TC956X_MSI_INT_RAW_STS_OFFSET(pf_id)	(TC956X_MSI_BASE + \
+						(pf_id * TC956X_MSI_PF1) + (0x0014))
+#define TC956X_MSI_STS_OFFSET(pf_id)		(TC956X_MSI_BASE + \
+						(pf_id * TC956X_MSI_PF1) + (0x0018))
 #define TC956X_MSI_MASK_SET_OFFSET(pf_id)	(TC956X_MSI_BASE +\
 						(pf_id * TC956X_MSI_PF1) + (0x0008))
 #define TC956X_MSI_MASK_CLR_OFFSET(pf_id)	(TC956X_MSI_BASE +\
@@ -1111,6 +1135,24 @@ entry delay = n * 256 ns */
 						(pf_id * TC956X_MSI_PF1) + (0x0054))
 #define TC956X_MSI_EVENT_OFFSET(pf_id)		(TC956X_MSI_BASE +\
 						(pf_id * TC956X_MSI_PF1) + (0x0068))
+#define TC956X_MSI_CNT0(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x0080))
+#define TC956X_MSI_CNT1(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x0084))
+#define TC956X_MSI_CNT2(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x0088))
+#define TC956X_MSI_CNT3(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x008C))
+#define TC956X_MSI_CNT4(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x0090))
+#define TC956X_MSI_CNT11(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x00AC))
+#define TC956X_MSI_CNT12(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x00B0))
+#define TC956X_MSI_CNT20(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x00D0))
+#define TC956X_MSI_CNT24(pf_id)			(TC956X_MSI_BASE +\
+						(pf_id * TC956X_MSI_PF1) + (0x00E0))
 
 #ifdef TC956X
 /* CPE usecase only TxCH 0 is applicable */
