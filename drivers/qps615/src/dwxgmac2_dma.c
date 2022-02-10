@@ -394,14 +394,6 @@ static void dwxgmac2_dma_stop_tx(struct tc956xmac_priv *priv,
 	value &= ~XGMAC_TXST;
 	writel(value, ioaddr + XGMAC_DMA_CH_TX_CONTROL(chan));
 
-	value = readl(ioaddr + XGMAC_MTL_TXQ_OPMODE(chan));
-	value |= 0x01;
-	writel(value, ioaddr +  XGMAC_MTL_TXQ_OPMODE(chan));
-
-	do {
-		  value = readl(ioaddr + XGMAC_MTL_TXQ_Debug(chan));
-	} while (value & XGMAC_MTL_DEBUG_TXQSTS);
-
 #ifndef DMA_OFFLOAD_ENABLE
 	value = readl(ioaddr + XGMAC_TX_CONFIG);
 	value &= ~XGMAC_CONFIG_TE;
@@ -416,8 +408,6 @@ static void dwxgmac2_dma_start_rx(struct tc956xmac_priv *priv,
 
 	value = readl(ioaddr + XGMAC_DMA_CH_RX_CONTROL(chan));
 	value |= XGMAC_RXST;
-	value &= ~XGMAC_RPF;
-	printk("Karthik : dwxgmac2_dma_start_rx 0x%X", value);
 	writel(value, ioaddr + XGMAC_DMA_CH_RX_CONTROL(chan));
 
 #ifndef DMA_OFFLOAD_ENABLE
@@ -434,8 +424,6 @@ static void dwxgmac2_dma_stop_rx(struct tc956xmac_priv *priv,
 
 	value = readl(ioaddr + XGMAC_DMA_CH_RX_CONTROL(chan));
 	value &= ~XGMAC_RXST;
-	value |= XGMAC_RPF;
-	printk("Karthik : dwxgmac2_dma_stop_rx 0x%X", value);
 	writel(value, ioaddr + XGMAC_DMA_CH_RX_CONTROL(chan));
 
 #ifndef DMA_OFFLOAD_ENABLE
