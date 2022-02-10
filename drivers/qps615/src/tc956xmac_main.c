@@ -81,20 +81,7 @@
  *  VERSION     : 01-00-27
  *  03 Dec 2021 : 1. Added error check for phydev in tc956xmac_suspend().
  *  VERSION     : 01-00-29
- *  08 Dec 2021 : 1. Added Module parameter for Rx & Tx Queue Size configuration.
- *  VERSION     : 01-00-30
- *  10 Dec 2021 : 1. Added Module parameter to count Link partner pause frames and output to ethtool.
- *  VERSION     : 01-00-31
- *  27 Dec 2021 : 1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
-		  2. Resetting and disabling of unused clocks for eMAC Port, when no-found PHY for that particular port.
-		  3. Valid phy-address and mii-pointer NULL check in tc956xmac_suspend().
-		  4. Version update.
- *  VERSION     : 01-00-32
- *  06 Jan 2022 : 1. Null check added while freeing skb buff data
- *  VERSION     : 01-00-33
- *  07 Jan 2022 : 1. During emac resume, attach the net device after initializing the queues
- *  VERSION     : 01-00-34
-*/
+ */
 
 #include <linux/clk.h>
 #include <linux/kernel.h>
@@ -247,14 +234,6 @@ static uint16_t mdio_bus_id;
 
 #define CONFIG_PARAM_NUM ARRAY_SIZE(config_param_list)
 int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *);
-
-/* Source Address in Pause frame from PHY */
-static u8 phy_sa_addr[2][6] = {
-	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, /*For Port-0*/
-	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, /*For Port-1*/
-};
-extern unsigned int mac0_en_lp_pause_frame_cnt;
-extern unsigned int mac1_en_lp_pause_frame_cnt;
 
 /**
  *  tc956x_GPIO_OutputConfigPin - to configure GPIO as output and write the value
@@ -2499,28 +2478,24 @@ static void tc956xmac_free_tx_buffer(struct tc956xmac_priv *priv, u32 queue, int
 {
 	struct tc956xmac_tx_queue *tx_q = &priv->tx_queue[queue];
 
-	if (tx_q->tx_skbuff_dma) {
-		if (tx_q->tx_skbuff_dma[i].buf) {
-			if (tx_q->tx_skbuff_dma[i].map_as_page)
-				dma_unmap_page(priv->device,
-					       tx_q->tx_skbuff_dma[i].buf,
-					       tx_q->tx_skbuff_dma[i].len,
-					       DMA_TO_DEVICE);
-			else
-				dma_unmap_single(priv->device,
-						 tx_q->tx_skbuff_dma[i].buf,
-						 tx_q->tx_skbuff_dma[i].len,
-						 DMA_TO_DEVICE);
-		}
+	if (tx_q->tx_skbuff_dma[i].buf) {
+		if (tx_q->tx_skbuff_dma[i].map_as_page)
+			dma_unmap_page(priv->device,
+				       tx_q->tx_skbuff_dma[i].buf,
+				       tx_q->tx_skbuff_dma[i].len,
+				       DMA_TO_DEVICE);
+		else
+			dma_unmap_single(priv->device,
+					 tx_q->tx_skbuff_dma[i].buf,
+					 tx_q->tx_skbuff_dma[i].len,
+					 DMA_TO_DEVICE);
 	}
 
-	if (tx_q->tx_skbuff) {
-		if (tx_q->tx_skbuff[i]) {
-			dev_kfree_skb_any(tx_q->tx_skbuff[i]);
-			tx_q->tx_skbuff[i] = NULL;
-			tx_q->tx_skbuff_dma[i].buf = 0;
-			tx_q->tx_skbuff_dma[i].map_as_page = false;
-		}
+	if (tx_q->tx_skbuff[i]) {
+		dev_kfree_skb_any(tx_q->tx_skbuff[i]);
+		tx_q->tx_skbuff[i] = NULL;
+		tx_q->tx_skbuff_dma[i].buf = 0;
+		tx_q->tx_skbuff_dma[i].map_as_page = false;
 	}
 }
 
@@ -2795,11 +2770,7 @@ static void free_dma_tx_desc_resources(struct tc956xmac_priv *priv)
 		dma_free_coherent(priv->device, size, addr, tx_q->dma_tx_phy);
 
 		kfree(tx_q->tx_skbuff_dma);
-		tx_q->tx_skbuff_dma = NULL;
-
 		kfree(tx_q->tx_skbuff);
-		tx_q->tx_skbuff = NULL;
-
 	}
 }
 
@@ -3155,10 +3126,10 @@ static void tc956xmac_dma_operation_mode(struct tc956xmac_priv *priv)
 #ifdef TC956X
 		switch (chan) {
 		case 0:
-			rxfifosz = priv->plat->rx_queues_cfg[0].size;
+			rxfifosz = RX_QUEUE0_SIZE;
 			break;
 		case 1:
-			rxfifosz = priv->plat->rx_queues_cfg[1].size;
+			rxfifosz = RX_QUEUE1_SIZE;
 			break;
 		case 2:
 			rxfifosz = RX_QUEUE2_SIZE;
@@ -3200,10 +3171,10 @@ static void tc956xmac_dma_operation_mode(struct tc956xmac_priv *priv)
 #ifdef TC956X
 		switch (chan) {
 		case 0:
-			txfifosz = priv->plat->tx_queues_cfg[0].size;
+			txfifosz = TX_QUEUE0_SIZE;
 			break;
 		case 1:
-			txfifosz = priv->plat->tx_queues_cfg[1].size;
+			txfifosz = TX_QUEUE1_SIZE;
 			break;
 		case 2:
 			txfifosz = TX_QUEUE2_SIZE;
@@ -3409,12 +3380,12 @@ static void tc956xmac_set_dma_operation_mode(struct tc956xmac_priv *priv, u32 tx
 #ifdef TC956X
 	switch (chan) {
 	case 0:
-		rxfifosz = priv->plat->rx_queues_cfg[0].size;
-		txfifosz = priv->plat->tx_queues_cfg[0].size;
+		rxfifosz = RX_QUEUE0_SIZE;
+		txfifosz = TX_QUEUE0_SIZE;
 		break;
 	case 1:
-		rxfifosz = priv->plat->rx_queues_cfg[1].size;
-		txfifosz = priv->plat->tx_queues_cfg[1].size;
+		rxfifosz = RX_QUEUE1_SIZE;
+		txfifosz = TX_QUEUE1_SIZE;
 		break;
 	case 2:
 		rxfifosz = RX_QUEUE2_SIZE;
@@ -4298,16 +4269,13 @@ static int tc956xmac_open(struct net_device *dev)
 	rd_val = readl(priv->ioaddr + NCLKCTRL0_OFFSET);
 	rd_val |= (1 << 18); /* MSIGENCEN=1 */
 #ifdef EEE_MAC_CONTROLLED_MODE
-	if (priv->port_num == RM_PF0_ID) {
-		rd_val |= (NCLKCTRL0_MAC0312CLKEN | NCLKCTRL0_MAC0125CLKEN);
-	}
-	rd_val |= (NCLKCTRL0_POEPLLCEN | NCLKCTRL0_SGMPCIEN | NCLKCTRL0_REFCLKOCEN);
+	rd_val |= 0x67000000;
 #endif
 	writel(rd_val, priv->ioaddr + NCLKCTRL0_OFFSET);
 	rd_val = readl(priv->ioaddr + NRSTCTRL0_OFFSET);
 	rd_val &= ~(1 << 18); /* MSIGENSRST=0 */
 #ifdef EEE_MAC_CONTROLLED_MODE
-	//rd_val &= ~(NRSTCTRL0_MAC0RST | NRSTCTRL0_MAC0RST);
+	rd_val &= ~(NRSTCTRL0_MAC0RST | NRSTCTRL0_MAC0RST);
 #endif
 	writel(rd_val, priv->ioaddr + NRSTCTRL0_OFFSET);
 
@@ -5438,7 +5406,6 @@ static int tc956xmac_rx(struct tc956xmac_priv *priv, int limit, u32 queue)
 	int status = 0, coe = priv->hw->rx_csum;
 	unsigned int next_entry = rx_q->cur_rx;
 	struct sk_buff *skb = NULL;
-	unsigned int proto;
 
 	if (netif_msg_rx_status(priv)) {
 		void *rx_head;
@@ -5581,18 +5548,6 @@ drain_data:
 			continue;
 
 		/* Got entire packet into SKB. Finish it. */
-		/* Pause frame counter to count link partner pause frames */
-		if ((mac0_en_lp_pause_frame_cnt == ENABLE && priv->port_num == RM_PF0_ID) ||
-			(mac1_en_lp_pause_frame_cnt == ENABLE && priv->port_num == RM_PF1_ID)) {
-			proto = htons(((skb->data[13]<<8) | skb->data[12]));
-			if (proto == ETH_P_PAUSE) {
-				if(!(skb->data[6] == phy_sa_addr[priv->port_num][0] && skb->data[7] == phy_sa_addr[priv->port_num][1] 
-					&& skb->data[8] == phy_sa_addr[priv->port_num][2] && skb->data[9] == phy_sa_addr[priv->port_num][3]
-					&& skb->data[10] == phy_sa_addr[priv->port_num][4] && skb->data[11] == phy_sa_addr[priv->port_num][5])) {
-					priv->xstats.link_partner_pause_frame_cnt++;
-				}
-			}
-		}
 
 		tc956xmac_get_rx_hwtstamp(priv, p, np, skb);
 #ifndef TC956X
@@ -10285,10 +10240,7 @@ int tc956xmac_dvr_probe(struct device *device,
 #ifdef EEPROM_MAC_ADDR
 	u32 mac_addr;
 #endif
-#ifndef TC956X_WITHOUT_MDIO
-	void *nrst_reg, *nclk_reg;
-	u32 nrst_val, nclk_val;
-#endif
+
 #ifdef TC956X
 	KPRINT_INFO("HFR0 Val = 0x%08x", readl(res->addr + mac_offset_base +
 							XGMAC_HW_FEATURE0_BASE));
@@ -10732,26 +10684,6 @@ error_mdio_register:
 				priv->plat->tx_dma_ch_owner[queue] == USE_IN_TC956X_SW)
 			netif_napi_del(&ch->tx_napi);
 	}
-#ifndef TC956X_WITHOUT_MDIO
-	if (priv->port_num == 0) {
-		nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
-		nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
-	} else {
-		nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL1_OFFSET;
-		nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL1_OFFSET;
-	}
-	nrst_val = readl(nrst_reg);
-	nclk_val = readl(nclk_reg);
-	KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num,
-		nrst_val, nclk_val);
-	/* Assert reset and Disable Clock for EMAC */
-	nrst_val = nrst_val | NRSTCTRL_EMAC_MASK;
-	nclk_val = nclk_val & ~NCLKCTRL_EMAC_MASK;
-	writel(nrst_val, nrst_reg);
-	writel(nclk_val, nclk_reg);
-	KPRINT_INFO("%s : Port %d Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num,
-		readl(nrst_reg), readl(nclk_reg));
-#endif
 error_hw_init:
 #ifndef TC956X
 	destroy_workqueue(priv->wq);
@@ -10836,19 +10768,17 @@ int tc956xmac_suspend(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
-	struct phy_device *phydev = NULL; /* For cancelling Work queue */
+	struct phy_device *phydev; /* For cancelling Work queue */
 	int addr = priv->plat->phy_addr;
-
-	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
-	if ((priv->plat->phy_addr != -1) && (priv->mii != NULL))
-		phydev = mdiobus_get_phy(priv->mii, addr);
+	phydev = mdiobus_get_phy(priv->mii, addr);
 
 	if (!ndev)
 		return 0;
 
+	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
+
 	if (!phydev) {
-		DBGPR_FUNC(priv->device, "%s Error : No phy at Addr %d or MDIO Unavailable \n", 
-			__func__, addr);
+		netdev_err(priv->dev, "no phy at addr %d\n", addr);
 		return 0;
 	}
 
@@ -10958,6 +10888,9 @@ int tc956xmac_resume(struct device *dev)
 	//	KPRINT_INFO("%s : Port %d - Phy Speed Up", __func__, priv->port_num);
 	//	phy_speed_up(phydev);
 	//}
+
+	/* Attach network device */
+	netif_device_attach(ndev);
 #ifndef TC956X
 	/* Reset Parameters. */
 	tc956xmac_reset_queues_param(priv);
@@ -10968,9 +10901,6 @@ int tc956xmac_resume(struct device *dev)
 	rtnl_lock();
 	tc956xmac_open(ndev);
 	rtnl_unlock();
-
-	/* Attach network device */
-	netif_device_attach(ndev);
 
 clean_exit:
 	if (priv->tc956xmac_pm_wol_interrupt) {
