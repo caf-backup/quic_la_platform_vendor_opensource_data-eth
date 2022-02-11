@@ -121,6 +121,16 @@
  *  VERSION     : 01-00-33
  *  07 Jan 2022 : 1. Version update
  *  VERSION     : 01-00-34
+ *  11 Jan 2022 : 1. Module parameter added to configure fixed phy mode
+ *		  2. Version update. 
+ *  VERSION     : 01-00-35
+ *  18 Jan 2022 : 1. Version update
+ *  VERSION     : 01-00-36
+ *  20 Jan 2022 : 1. Restore clock after resume in set_power.
+		  2. Skip Resume-Config if port unavailable (PHY not connected) during suspend-resume.
+		  3. Shifted Queuing Work to end of resume to prevent MSI disable on resume.
+		  4. Version update
+ *  VERSION     : 01-00-37
  */
 
 #include <linux/clk-provider.h>
@@ -147,6 +157,12 @@
 #ifdef TC956X_PCIE_GEN3_SETTING
 static unsigned int pcie_link_speed = 3;
 #endif
+
+unsigned int mac0_force_speed_mode = DISABLE;
+unsigned int mac1_force_speed_mode = DISABLE;
+unsigned int mac0_force_config_speed = 3; /* 1Gbps */
+unsigned int mac1_force_config_speed = 3; /* 1Gbps */
+
 static unsigned int mac0_interface = ENABLE_XFI_INTERFACE;
 static unsigned int mac1_interface = ENABLE_SGMII_INTERFACE;
 
@@ -179,7 +195,7 @@ static unsigned int mac1_txq1_size = TX_QUEUE1_SIZE;
 unsigned int mac0_en_lp_pause_frame_cnt = DISABLE;
 unsigned int mac1_en_lp_pause_frame_cnt = DISABLE;
 
-static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 3, 4};
+static const struct tc956x_version tc956x_drv_version = {0, 1, 0, 0, 3, 7};
 
 static int tc956xmac_pm_usage_counter; /* Device Usage Counter */
 struct mutex tc956x_pm_suspend_lock; /* This mutex is shared between all available EMAC ports. */
@@ -237,8 +253,8 @@ static struct tc956xmac_rx_parser_entry snps_rxp_entries_filter_phy_pause_frames
  */
 static void tc956xmac_pm_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_PM_STATE state)
 {
-	void *nrst_reg, *nclk_reg, *commonclk_reg;
-	u32 nrst_val, nclk_val, commonclk_val;
+	void *nrst_reg = NULL, *nclk_reg = NULL, *commonclk_reg = NULL;
+	u32 nrst_val = 0, nclk_val = 0, commonclk_val = 0;
 	KPRINT_INFO("-->%s : Port %d", __func__, priv->port_num);
 	/* Select register address by port */
 	if (priv->port_num == 0) {
@@ -293,6 +309,7 @@ static void tc956xmac_pm_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT
 			nrst_val, nclk_val);
 		/* Restore values same as before suspend */
 		nrst_val = (nrst_val & ~NRSTCTRL_EMAC_MASK) | priv->pm_saved_emac_rst;
+		nclk_val = nclk_val | priv->pm_saved_emac_clk; /* Restore Clock */
 		writel(nclk_val, nclk_reg);
 		writel(nrst_val, nrst_reg);
 	}
@@ -936,6 +953,8 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 {
 	unsigned int queue0_rfd = 0, queue1_rfd = 0, queue0_rfa = 0, queue1_rfa = 0, temp_var = 0;
 	unsigned int rxqueue0_size = 0, rxqueue1_size = 0, txqueue0_size = 0, txqueue1_size = 0;
+	unsigned int forced_speed = 3; /* default 1Gbps */
+
 	/* Set common default data first */
 	xgmac_default_data(plat);
 
@@ -970,6 +989,39 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 
 #endif
 	plat->phy_interface = plat->interface;
+
+	/* Configure forced speed based on the module param.
+	 * This is applicable only for fixed phy mode.
+	 */
+	if (plat->port_num == RM_PF0_ID)
+		forced_speed = mac0_force_config_speed;
+
+	if (plat->port_num == RM_PF1_ID)
+		forced_speed = mac1_force_config_speed;
+
+	switch (forced_speed) {
+	case 0:
+		plat->forced_speed = SPEED_10000;
+		break;
+	case 1:
+		plat->forced_speed = SPEED_5000;
+		break;
+	case 2:
+		plat->forced_speed = SPEED_2500;
+		break;
+	case 3:
+		plat->forced_speed = SPEED_1000;
+		break;
+	case 4:
+		plat->forced_speed = SPEED_100;
+		break;
+	case 5:
+		plat->forced_speed = SPEED_10;
+		break;
+	default:
+		plat->forced_speed = SPEED_1000;
+		break;
+	}
 
 #ifdef TC956X
 	plat->clk_ptp_rate = TC956X_TARGET_PTP_CLK;
@@ -2298,6 +2350,8 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 #ifdef TC956X_PCIE_GEN3_SETTING
 		NMSGPR_INFO(&pdev->dev, "pcie_link_speed = %d \n", pcie_link_speed);
 #endif
+		NMSGPR_INFO(&pdev->dev, "mac0_force_speed_mode = %d \n", mac0_force_speed_mode);
+		NMSGPR_INFO(&pdev->dev, "mac0_force_config_speed = %d \n", mac0_force_config_speed);
 		NMSGPR_INFO(&pdev->dev, "mac0_interface = %d \n", mac0_interface);
 		NMSGPR_INFO(&pdev->dev, "mac0_eee_enable = %d \n", mac0_eee_enable);
 		NMSGPR_INFO(&pdev->dev, "mac0_lpi_timer = %d \n", mac0_lpi_timer);
@@ -2312,6 +2366,8 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		NMSGPR_INFO(&pdev->dev, "mac0_txq1_size = %d \n", mac0_txq1_size);
 		NMSGPR_INFO(&pdev->dev, "mac0_en_lp_pause_frame_cnt = %d \n", mac0_en_lp_pause_frame_cnt);
 	} else if (plat->port_num == RM_PF1_ID) {
+		NMSGPR_INFO(&pdev->dev, "mac1_force_speed_mode = %d \n", mac1_force_speed_mode);
+		NMSGPR_INFO(&pdev->dev, "mac1_force_config_speed = %d \n", mac1_force_config_speed);
 		NMSGPR_INFO(&pdev->dev, "mac1_interface = %d \n", mac1_interface);
 		NMSGPR_INFO(&pdev->dev, "mac1_eee_enable = %d \n", mac1_eee_enable);
 		NMSGPR_INFO(&pdev->dev, "mac1_filter_phy_pause = %d \n", mac1_filter_phy_pause);
@@ -2358,6 +2414,19 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	plat->port_interface = res.port_interface;
 
 	if (res.port_num == RM_PF0_ID) {
+
+		if ((mac0_force_speed_mode != DISABLE) && (mac0_force_speed_mode != ENABLE)) {
+			mac0_force_speed_mode = DISABLE;
+			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid mac0_force_speed_mode parameter passed. Restoring default to %d. Supported Values are 0 and 1.\n",
+			__func__, mac0_force_speed_mode);
+		}
+		if (mac0_force_speed_mode == ENABLE) {
+			if (mac0_force_config_speed > 5) { /*Configuring default value on error*/
+				mac0_force_config_speed = 3;
+				NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid mac0_force_config_speed parameter passed. Restoring default to %d. Supported Values are 0 to 5.\n",
+				__func__, mac0_force_config_speed);
+			}
+		}
 		if ((mac0_eee_enable != DISABLE) && 
 		(mac0_eee_enable != ENABLE)) {
 			mac0_eee_enable = DISABLE;
@@ -2377,6 +2446,20 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	}
 
 	if (res.port_num == RM_PF1_ID) {
+
+		if ((mac1_force_speed_mode != DISABLE) && (mac1_force_speed_mode != ENABLE)) {
+			mac1_force_speed_mode = DISABLE;
+			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid mac1_force_speed_mode parameter passed. Restoring default to %d. Supported Values are 0 and 1.\n",
+			__func__, mac1_force_speed_mode);
+		}
+		if (mac1_force_speed_mode == ENABLE) {
+			if (mac1_force_config_speed > 5) { /*Configuring default value on error*/
+				mac1_force_config_speed = 3;
+				NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid mac1_force_config_speed parameter passed. Restoring default to %d. Supported Values are 0 to 5.\n",
+				__func__, mac1_force_config_speed);
+			}
+		}
+
 		if ((mac1_eee_enable != DISABLE) && 
 		(mac1_eee_enable != ENABLE)) {
 			mac1_eee_enable = DISABLE;
@@ -2901,6 +2984,14 @@ static int tc956x_pcie_resume_config(struct pci_dev *pdev)
 	uint8_t SgmSigPol = 0;
 	int ret = 0;
 
+	DBGPR_FUNC(&(pdev->dev), "---> %s", __func__);	
+	/* Skip Config when Port unavailable */
+	if ((priv->plat->phy_addr == -1) || (priv->mii == NULL)) {
+		DBGPR_FUNC(&(pdev->dev), "%s : Invalid PHY Address (%d)\n", __func__, priv->plat->phy_addr);
+		ret = -1;
+		goto err_phy_addr;
+	}
+
 	if (priv->port_num == RM_PF0_ID) {
 		ret = readl(priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET);
 
@@ -3043,6 +3134,8 @@ static int tc956x_pcie_resume_config(struct pci_dev *pdev)
 			KPRINT_INFO("XPCS initialization error\n");
 	}
 
+err_phy_addr:
+	DBGPR_FUNC(&(pdev->dev), "<--- %s", __func__);
 	return ret;
 }
 #endif
@@ -3149,6 +3242,15 @@ static int tc956x_pcie_resume(struct device *dev)
 	DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports Resumed = [%d]) \n", __func__, tc956xmac_pm_usage_counter);
 
 	priv->tc956x_port_pm_suspend = false;
+
+	/* Queue Work after resume complete to prevent MSI Disable */
+	if (priv->tc956xmac_pm_wol_interrupt) {
+		DBGPR_FUNC(&(pdev->dev), "%s : Clearing WOL and queuing phy work", __func__);
+		/* Clear WOL Interrupt after resume, if WOL enabled */
+		priv->tc956xmac_pm_wol_interrupt = false;
+		/* Queue the work in system_wq */
+		queue_work(system_wq, &priv->emac_phy_work);
+	}
 
 err:
 	mutex_unlock(&tc956x_pm_suspend_lock);
@@ -3488,6 +3590,26 @@ module_param(mac1_en_lp_pause_frame_cnt, uint, 0444);
 MODULE_PARM_DESC(mac1_en_lp_pause_frame_cnt,
 		 "Enable counter to count Link Partner pause frames in PORT1 - default is 0,\
 		 [0: DISABLE, 1: ENABLE]");
+
+module_param(mac0_force_speed_mode, uint, 0444);
+MODULE_PARM_DESC(mac0_force_speed_mode,
+		 "Enable MAC0 force speed mode - default is 0,\
+		 [0: DISABLE, 1: ENABLE]");
+
+module_param(mac0_force_config_speed, uint, 0444);
+MODULE_PARM_DESC(mac0_force_config_speed,
+		 "Configure MAC0 force speed - default is 3,\
+		 [0: 10G, 1: 5G, 2: 2.5G, 3: 1G, 4: 100M, 5: 10M]");
+
+module_param(mac1_force_speed_mode, uint, 0444);
+MODULE_PARM_DESC(mac1_force_speed_mode,
+		 "Enable MAC1 force speed mode - default is 0,\
+		 [0: DISABLE, 1: ENABLE]");
+
+module_param(mac1_force_config_speed, uint, 0444);
+MODULE_PARM_DESC(mac1_force_config_speed,
+		 "Configure MAC1 force speed - default is 3,\
+		 [0: 10G, 1: 5G, 2: 2.5G, 3: 1G, 4: 100M, 5: 10M]");
 
 MODULE_DESCRIPTION("TC956X PCI Express Ethernet Network Driver");
 MODULE_AUTHOR("Toshiba Electronic Devices & Storage Corporation");

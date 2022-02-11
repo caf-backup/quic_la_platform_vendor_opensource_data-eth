@@ -72,7 +72,7 @@ out:
 
 static void __maybe_unused emac_ctrl_fe_trigger_notif_work(struct work_struct *work) {
 
-	if (emac_ctrl_fe_ctx->emac_ctrl_fe_state == EMAC_CTRL_FE_EVENT_LISTN_INIT) {
+	if (emac_ctrl_fe_ctx->emac_ctrl_fe_state >= EMAC_CTRL_FE_EVENT_LISTN_INIT) {
 		/*Register for Events*/
 		emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_VIRT_REG_EVENTS;
 		emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
@@ -96,8 +96,6 @@ int emac_ctrl_fe_register_notifier(struct notifier_block *nb)
 			EMAC_CTRL_FE_EVENT_LISTN_INIT) {
 			/*process notification sequence so far*/
 			EMAC_CTL_FE_INFO("Schedule Event notifications \n");
-			/*Possibly need to move it to probe , I dont have any documentation explaining if cancel = cleanup*/
-			INIT_DEFERRABLE_WORK(&emac_ctrl_fe_trigger_notif, emac_ctrl_fe_trigger_notif_work);
 			schedule_delayed_work(&emac_ctrl_fe_trigger_notif, msecs_to_jiffies(5) );
 		}
 	}
@@ -122,7 +120,7 @@ int emac_ctrl_fe_unregister_notifier(struct notifier_block *nb)
 	/*Parse notifier block for suspend state*/
 	cancel_delayed_work_sync(&emac_ctrl_fe_trigger_notif);
 
-	return atomic_notifier_chain_register(&emac_ctrl_fe_notifier_chain, nb);
+	return atomic_notifier_chain_unregister(&emac_ctrl_fe_notifier_chain, nb);
 }
 EXPORT_SYMBOL_GPL(emac_ctrl_fe_unregister_notifier);
 /*EXPORT_SYMBOL is also same define #define EXPORT_SYMBOL_GPL(sym) extern typeof(sym) sym*/
@@ -559,6 +557,7 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 
 	/*Signal FE DMA Thin driver EMAC_FE_CTRL_DRV is ready*/
 	pdev->emac_ctrl_fe_ready = true;
+	INIT_DEFERRABLE_WORK(&emac_ctrl_fe_trigger_notif, emac_ctrl_fe_trigger_notif_work);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - DRIVER EMAC_CTRL_FE Ready");
 #endif
