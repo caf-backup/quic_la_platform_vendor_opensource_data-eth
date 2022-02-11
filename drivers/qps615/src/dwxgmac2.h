@@ -606,7 +606,6 @@
 #define XGMAC_OSP			BIT(4)
 #define XGMAC_TXST			BIT(0)
 #define XGMAC_DMA_CH_RX_CONTROL(x)	(MAC_OFFSET + (0x00003108 + (0x80 * (x))))
-#define XGMAC_RPF			BIT(31)
 #define XGMAC_RxPBL			GENMASK(21, 16)
 #define XGMAC_RxPBL_SHIFT		16
 #define XGMAC_RBSZ			GENMASK(14, 1)
