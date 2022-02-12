@@ -44,6 +44,10 @@
  *  VERSION     : 01-00-17
  *  25 Oct 2021 : 1. Added EEE macros for MAC controlled EEE.
  *  VERSION     : 01-00-19
+ *  31 Jan 2022 : 1. Additional macros defined for debug dump API usage.
+ *  VERSION     : 01-00-39
+ *  02 Feb 2022 : 1. Macros added for Tx Queue flush and Rx DMA flush
+ *  VERSION     : 01-00-40
  */
 
 
@@ -168,6 +172,8 @@
 #else
 #define XGMAC_INT_DEFAULT_EN		(XGMAC_LPIIE)
 #endif
+
+#define XGMAC_RX_TX_STS			(MAC_OFFSET + 0x000000b8)
 #define XGMAC_Qx_TX_FLOW_CTRL(x)	(MAC_OFFSET + (0x00000070 + (x) * 4))
 #define XGMAC_PT			GENMASK(31, 16)
 #define XGMAC_PT_SHIFT			16
@@ -443,6 +449,8 @@
 #define XGMAC_TXQEN			GENMASK(3, 2)
 #define XGMAC_TXQEN_SHIFT		2
 #define XGMAC_TSF			BIT(1)
+#define XGMAC_FTQ			BIT(0)
+
 #define XGMAC_MTL_TXQ_UF_OFFSET(x)	(MAC_OFFSET + (0x00001104 + (0x80 * (x))))
 #define XGMAC_MTL_UFPKTCNT_MASK		GENMASK(10, 0)
 #define XGMAC_MTL_TXQ_UFPKT_CNT(x)	((XGMAC_MTL_TXQ_UF_OFFSET(x)) & XGMAC_MTL_UFPKTCNT_MASK)
@@ -611,6 +619,7 @@
 #define XGMAC_RBSZ			GENMASK(14, 1)
 #define XGMAC_RBSZ_SHIFT		1
 #define XGMAC_RXST			BIT(0)
+#define XGMAC_RPF			BIT(31)
 #define XGMAC_DMA_CH_TxDESC_HADDR(x)	(MAC_OFFSET + (0x00003110 + (0x80 * (x))))
 #define XGMAC_DMA_CH_TxDESC_LADDR(x)	(MAC_OFFSET + (0x00003114 + (0x80 * (x))))
 #define XGMAC_DMA_CH_RxDESC_HADDR(x)	(MAC_OFFSET + (0x00003118 + (0x80 * (x))))
@@ -639,6 +648,9 @@
 #define XGMAC_DMA_CH_Rx_WATCHDOG(x)	(MAC_OFFSET + (0x0000313c + (0x80 * (x))))
 #define XGMAC_RWT			GENMASK(7, 0)
 #define XGMAC_DMA_CH_STATUS(x)		(MAC_OFFSET + (0x00003160 + (0x80 * (x))))
+
+#define XGMAC_DMA_CH_DBG_STATUS(x)	(MAC_OFFSET + (0x00003164 + (0x80 * (x))))
+
 #define XGMAC_NIS			BIT(15)
 #define XGMAC_AIS			BIT(14)
 #define XGMAC_FBE			BIT(12)
@@ -647,6 +659,8 @@
 #define XGMAC_TBU			BIT(2)
 #define XGMAC_TPS			BIT(1)
 #define XGMAC_TI			BIT(0)
+#define XGMAC_RPS			BIT(8)
+
 #define XGMAC_DMA_CH_Cur_TxDESC_HADDR(x)	(MAC_OFFSET + (0x00003140 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_TxDESC_LADDR(x)	(MAC_OFFSET + (0x00003144 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_RxDESC_HADDR(x)	(MAC_OFFSET + (0x00003148 + (0x80 * (x))))
@@ -655,6 +669,9 @@
 #define XGMAC_DMA_CH_Cur_TxBuff_LADDR(x)	(MAC_OFFSET + (0x00003154 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_RxBuff_HADDR(x)	(MAC_OFFSET + (0x00003158 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_RxBuff_LADDR(x)	(MAC_OFFSET + (0x0000315c + (0x80 * (x))))
+
+#define XGMAC_DMA_DEBUG_STATUS0			(MAC_OFFSET + 0x3020)
+
 #ifdef TC956X
 #define XGMAC_REGSIZE			(0x000034FC / 4)
 #else
